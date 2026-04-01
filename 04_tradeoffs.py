@@ -217,8 +217,8 @@ def _(
         .merge(_alias(bond_length_delta), on=_merge_on)
         .merge(_alias(rama_z_term), on=_merge_on)
         .merge(_alias(torsion_z_term), on=_merge_on)
-        .merge(_alias(rscc_delta_tradeoff), on=_merge_on)
-        .merge(_alias(lddt_delta), on=_merge_on)
+        .merge(_alias(rscc_delta_tradeoff), on=_merge_on, how="left")
+        .merge(_alias(lddt_delta), on=_merge_on, how="left")
     )
 
     tradeoff_df["guidance_order"] = tradeoff_df["guidance_strength"].map(
@@ -333,7 +333,10 @@ def _(pd, tradeoff_df):
         tradeoff_case_summary.pivot(
             index="model_name", columns="case_type", values="case_note"
         )
-        .reindex(["boltz2X-RAY", "boltz2MD", "protenix", "rf3"])
+        .reindex([
+            "boltz2X-RAY", "boltz2MD", "protenix", "rf3",
+            "protenix-mini", "protenix-tiny", "rf3-fixed", "rf3-chiral-off",
+        ])
         .reset_index()
     )
 
@@ -421,7 +424,7 @@ def _(weak_tradeoff):
 
 @app.cell
 def _(make_tradeoff_grid, plt, save_fig, tradeoff_df):
-    _fig, _axes = make_tradeoff_grid(
+    _fig, _axes, _mo = make_tradeoff_grid(
         tradeoff_df,
         "geometry_penalty",
         "Simple geometry score",
@@ -452,9 +455,15 @@ def _(mo):
 
 @app.cell
 def _(MODEL_DISPLAY, make_spiral_figure, plt, save_fig, tradeoff_df):
-    _spiral_nums = {"boltz2X-RAY": 21, "boltz2MD": 22, "protenix": 23, "rf3": 24}
+    _spiral_nums = {
+        "boltz2X-RAY": 21, "boltz2MD": 22, "protenix": 23, "rf3": 24,
+        "protenix-mini": 25, "protenix-tiny": 26, "rf3-fixed": 27, "rf3-chiral-off": 28,
+    }
     _model_order = [
-        m for m in ["boltz2X-RAY", "boltz2MD", "protenix", "rf3"]
+        m for m in [
+            "boltz2X-RAY", "boltz2MD", "protenix", "rf3",
+            "protenix-mini", "protenix-tiny", "rf3-fixed", "rf3-chiral-off",
+        ]
         if m in tradeoff_df["model_name"].unique()
     ]
     for _model in _model_order:
@@ -553,12 +562,13 @@ def _(
     tradeoff_df,
     tradeoff_highlight_points,
 ):
-    _fig, _axes = make_tradeoff_grid(
+    _fig, _axes, _mo = make_tradeoff_grid(
         tradeoff_df, "geometry_penalty", "Simple geometry score",
-        figsize=(18, 8.2), scatter_size=14, scatter_alpha=0.22, show_centroids=False,
+        scatter_size=14, scatter_alpha=0.22, show_centroids=False,
     )
     annotate_tradeoff_highlights(
         _fig, _axes, tradeoff_highlight_points, "geometry_penalty",
+        model_order=_mo,
         title="Tradeoff highlights with simple geometry penalty",
     )
     save_fig(_fig, "15_tradeoff_highlight_cases.png")
@@ -587,12 +597,13 @@ def _(
     tradeoff_df,
     tradeoff_highlight_points,
 ):
-    _fig, _axes = make_tradeoff_grid(
+    _fig, _axes, _mo = make_tradeoff_grid(
         tradeoff_df, "tortoize_combined_score", "Combined Tortoize",
-        figsize=(18, 8.2), scatter_size=14, scatter_alpha=0.22, show_centroids=False,
+        scatter_size=14, scatter_alpha=0.22, show_centroids=False,
     )
     annotate_tradeoff_highlights(
         _fig, _axes, tradeoff_highlight_points, "tortoize_combined_score",
+        model_order=_mo,
         title="Highlighted tradeoff cases with combined Tortoize score",
     )
     save_fig(_fig, "16_tradeoff_highlight_cases_tortoize.png")

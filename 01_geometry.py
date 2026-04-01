@@ -7,6 +7,7 @@ app = marimo.App()
 @app.cell
 def _():
     import marimo as mo
+
     return (mo,)
 
 
@@ -23,15 +24,13 @@ def _():
         make_delta_frame,
         save_fig,
     )
+
     return (
         load_and_tag_path_csv,
         make_delta_frame,
         make_ridge_plot,
-        np,
         pd,
-        plt,
         save_fig,
-        sns,
         tag_path_dataframe,
     )
 
@@ -45,9 +44,6 @@ def _(mo):
     )
     mo.vstack([smoothing])
     return (smoothing,)
-
-
-# ── Clash Scores ──────────────────────────────────────────────────────────────
 
 
 @app.cell(hide_code=True)
@@ -204,8 +200,8 @@ def _(clash_summary):
     by_pdb_id = (
         clash_summary.reset_index()
         .query(
-            "(model_name != 'rf3' and guidance_weight == 0.1) or "
-            "(model_name == 'rf3' and guidance_weight == 0.01)"
+            "(model_name not in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.1) or "
+            "(model_name in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.01)"
         )
         .pivot(index="pdb_id", columns="model_name", values=["num_clashes", "clashscore"])
     )
@@ -225,9 +221,6 @@ def _(mo):
 def _(by_pdb_id):
     by_pdb_id.num_clashes.idxmin(axis=1).reset_index(name="model_name").groupby("model_name").size()
     return
-
-
-# ── Bond Length and Angle Violations ──────────────────────────────────────────
 
 
 @app.cell(hide_code=True)

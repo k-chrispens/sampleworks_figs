@@ -87,8 +87,8 @@ def _(dihedrals_summary):
     (
         dihedrals_summary.reset_index()
         .query(
-            "(model_name != 'rf3' and guidance_weight == 0.1) or "
-            "(model_name == 'rf3' and guidance_weight == 0.01)"
+            "(model_name not in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.1) or "
+            "(model_name in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.01)"
         )
         .pivot(
             index="pdb_id",
@@ -104,8 +104,8 @@ def _(dihedrals_summary, pd, plt, save_fig, sns):
     _dsw = (
         dihedrals_summary.reset_index()
         .query(
-            "(model_name != 'rf3' and guidance_weight == 0.1) or "
-            "(model_name == 'rf3' and guidance_weight == 0.01)"
+            "(model_name not in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.1) or "
+            "(model_name in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.01)"
         )
         .dropna()
         .assign(guidance="weak")
@@ -113,8 +113,8 @@ def _(dihedrals_summary, pd, plt, save_fig, sns):
     _dss = (
         dihedrals_summary.reset_index()
         .query(
-            "(model_name != 'rf3' and guidance_weight == 0.5) or "
-            "(model_name == 'rf3' and guidance_weight == 0.05)"
+            "(model_name not in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.5) or "
+            "(model_name in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.05)"
         )
         .dropna()
         .assign(guidance="strong")
@@ -267,8 +267,8 @@ def _(dihedral_means, pd, plt, save_fig, sns):
     _dsw = (
         dihedral_means.reset_index()
         .query(
-            "(model_name != 'rf3' and guidance_weight == 0.1) or "
-            "(model_name == 'rf3' and guidance_weight == 0.01)"
+            "(model_name not in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.1) or "
+            "(model_name in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.01)"
         )
         .dropna()
         .assign(guidance="weak")
@@ -276,8 +276,8 @@ def _(dihedral_means, pd, plt, save_fig, sns):
     _dss = (
         dihedral_means.reset_index()
         .query(
-            "(model_name != 'rf3' and guidance_weight == 0.5) or "
-            "(model_name == 'rf3' and guidance_weight == 0.05)"
+            "(model_name not in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.5) or "
+            "(model_name in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.05)"
         )
         .dropna()
         .assign(guidance="strong")

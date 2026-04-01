@@ -50,6 +50,10 @@ MODEL_PALETTE = {
     "protenix": COLOR_GOOD_PINK,
     "rf3": COLOR_GOOD_NAVAHO,
     "ground_truth": COLOR_GOOD_GRAY,
+    "protenix-mini": "#FF6B9D",
+    "protenix-tiny": "#CC3377",
+    "rf3-fixed": "#FFD700",
+    "rf3-chiral-off": "#DAA520",
 }
 
 GUIDANCE_MARKERS = {
@@ -103,6 +107,10 @@ MODEL_DISPLAY = {
     "boltz2MD": "Boltz2-MD",
     "boltz2md": "Boltz2-MD",
     "ground_truth": "Ground truth",
+    "protenix-mini": "Protenix-Mini",
+    "protenix-tiny": "Protenix-Tiny",
+    "rf3-fixed": "RF3-Fixed",
+    "rf3-chiral-off": "RF3-Chiral-Off",
 }
 
 MODEL_NAME_ALIAS = {
@@ -833,11 +841,17 @@ def make_tradeoff_grid(
             ("delta_silhouette_to_ref", "Δ LDDT silhouette-to-ref vs baseline"),
         ]
     if model_order is None:
-        model_order = ["boltz2X-RAY", "boltz2MD", "protenix", "rf3"]
+        model_order = [
+            "boltz2X-RAY", "boltz2MD", "protenix", "rf3",
+            "protenix-mini", "protenix-tiny", "rf3-fixed", "rf3-chiral-off",
+        ]
+    # Keep only models present in the data
+    _present = set(tradeoff_df["model_name"].unique())
+    model_order = [m for m in model_order if m in _present]
     if guidance_order is None:
         guidance_order = ["weak", "medium", "strong"]
     if figsize is None:
-        figsize = (17, 7.6)
+        figsize = (4.25 * len(model_order), 7.6)
 
     # y-axis limits from data
     y_vals = tradeoff_df[y_col].replace([np.inf, -np.inf], np.nan).dropna()
@@ -983,7 +997,7 @@ def make_tradeoff_grid(
     if title is not None:
         fig.suptitle(title, y=1.05, fontsize=13)
     fig.tight_layout()
-    return fig, axes
+    return fig, axes, model_order
 
 
 def annotate_tradeoff_highlights(
@@ -1027,12 +1041,17 @@ def annotate_tradeoff_highlights(
             ("delta_silhouette_to_ref", "Δ LDDT silhouette-to-ref vs baseline"),
         ]
     if model_order is None:
-        model_order = ["boltz2X-RAY", "boltz2MD", "protenix", "rf3"]
+        model_order = [
+            "boltz2X-RAY", "boltz2MD", "protenix", "rf3",
+            "protenix-mini", "protenix-tiny", "rf3-fixed", "rf3-chiral-off",
+        ]
     if guidance_order is None:
         guidance_order = ["weak", "medium", "strong"]
 
     for row_idx, (metric, _) in enumerate(metric_rows):
         for col_idx, model in enumerate(model_order):
+            if col_idx >= axes.shape[-1]:
+                break
             ax = axes[row_idx, col_idx]
             hdf = highlight_points[highlight_points["model_name"] == model].copy()
             if hdf.empty:
@@ -1307,7 +1326,10 @@ def make_conceptual_tradeoff_figure(
 
     m_order = [
         m
-        for m in ["boltz2X-RAY", "boltz2MD", "protenix", "rf3"]
+        for m in [
+            "boltz2X-RAY", "boltz2MD", "protenix", "rf3",
+            "protenix-mini", "protenix-tiny", "rf3-fixed", "rf3-chiral-off",
+        ]
         if m in plot_df["model_name"].unique()
     ] or sorted(plot_df["model_name"].unique())
 
