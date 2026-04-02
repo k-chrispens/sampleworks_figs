@@ -23,6 +23,9 @@ def _():
         make_ridge_plot,
         make_delta_frame,
         save_fig,
+        MODELS_ALT,
+        MODELS_PROTENIX_GROUP,
+        MODELS_RF3_GROUP,
     )
 
     return (
@@ -153,12 +156,29 @@ def _(clash_summary):
 
 @app.cell
 def _(clashes, make_ridge_plot, save_fig, smoothing):
-    _g = make_ridge_plot(
-        clashes.query("guidance_strength != 'strong' and selection_name != 'all altloc'"),
-        "clashscore",
-        smoothing=smoothing.value,
-    )
+    _filt = clashes.query("guidance_strength != 'strong' and selection_name != 'all altloc'")
+    _g = make_ridge_plot(_filt.query("model_name not in @MODELS_ALT"), "clashscore", smoothing=smoothing.value)
     save_fig(_g, "01_clashscore_distribution.png")
+    return
+
+
+@app.cell
+def _(clashes, make_ridge_plot, save_fig, smoothing):
+    _g = make_ridge_plot(
+        clashes.query("guidance_strength != 'strong' and selection_name != 'all altloc' and model_name in @MODELS_PROTENIX_GROUP"),
+        "clashscore", smoothing=smoothing.value,
+    )
+    save_fig(_g, "01_clashscore_distribution_protenix_alts.png")
+    return
+
+
+@app.cell
+def _(clashes, make_ridge_plot, save_fig, smoothing):
+    _g = make_ridge_plot(
+        clashes.query("guidance_strength != 'strong' and selection_name != 'all altloc' and model_name in @MODELS_RF3_GROUP"),
+        "clashscore", smoothing=smoothing.value,
+    )
+    save_fig(_g, "01_clashscore_distribution_rf3_alts.png")
     return
 
 
@@ -176,12 +196,32 @@ def _(mo):
 def _(clashes, make_delta_frame, make_ridge_plot, save_fig, smoothing):
     clashes_diff = make_delta_frame(clashes, "clashscore")
     _g = make_ridge_plot(
-        clashes_diff.query("delta_clashscore < 100"),
-        "delta_clashscore",
-        is_delta=True,
-        smoothing=smoothing.value,
+        clashes_diff.query("delta_clashscore < 100 and model_name not in @MODELS_ALT"),
+        "delta_clashscore", is_delta=True, smoothing=smoothing.value,
     )
     save_fig(_g, "02_delta_clashscore_distribution.png")
+    return
+
+
+@app.cell
+def _(clashes, make_delta_frame, make_ridge_plot, save_fig, smoothing):
+    _diff = make_delta_frame(clashes, "clashscore")
+    _g = make_ridge_plot(
+        _diff.query("delta_clashscore < 100 and model_name in @MODELS_PROTENIX_GROUP"),
+        "delta_clashscore", is_delta=True, smoothing=smoothing.value,
+    )
+    save_fig(_g, "02_delta_clashscore_distribution_protenix_alts.png")
+    return
+
+
+@app.cell
+def _(clashes, make_delta_frame, make_ridge_plot, save_fig, smoothing):
+    _diff = make_delta_frame(clashes, "clashscore")
+    _g = make_ridge_plot(
+        _diff.query("delta_clashscore < 100 and model_name in @MODELS_RF3_GROUP"),
+        "delta_clashscore", is_delta=True, smoothing=smoothing.value,
+    )
+    save_fig(_g, "02_delta_clashscore_distribution_rf3_alts.png")
     return
 
 
@@ -200,8 +240,8 @@ def _(clash_summary):
     by_pdb_id = (
         clash_summary.reset_index()
         .query(
-            "(model_name not in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.1) or "
-            "(model_name in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.01)"
+            "(model_name not in ['rf3','rf3-old','rf3-chiral-off'] and guidance_weight == 0.1) or "
+            "(model_name in ['rf3','rf3-old','rf3-chiral-off'] and guidance_weight == 0.01)"
         )
         .pivot(index="pdb_id", columns="model_name", values=["num_clashes", "clashscore"])
     )
@@ -271,7 +311,7 @@ def _(bond_stats_summary):
 def _(bond_stats, make_delta_frame, make_ridge_plot, save_fig, smoothing):
     _delta = make_delta_frame(bond_stats, "outlier_fraction_bond_angles")
     _g = make_ridge_plot(
-        _delta.query("delta_outlier_fraction_bond_angles < 0.05"),
+        _delta.query("delta_outlier_fraction_bond_angles < 0.05 and model_name not in @MODELS_ALT"),
         "delta_outlier_fraction_bond_angles",
         is_delta=True,
         smoothing=smoothing.value,
@@ -284,6 +324,28 @@ def _(bond_stats, make_delta_frame, make_ridge_plot, save_fig, smoothing):
         "outlier_fraction_bond_angles": ["mean", "size"],
         "delta_outlier_fraction_bond_angles": ["mean", "max"],
     })
+    return
+
+
+@app.cell
+def _(bond_stats, make_delta_frame, make_ridge_plot, save_fig, smoothing):
+    _delta = make_delta_frame(bond_stats, "outlier_fraction_bond_angles")
+    _g = make_ridge_plot(
+        _delta.query("delta_outlier_fraction_bond_angles < 0.05 and model_name in @MODELS_PROTENIX_GROUP"),
+        "delta_outlier_fraction_bond_angles", is_delta=True, smoothing=smoothing.value,
+    )
+    save_fig(_g, "03_delta_bond_angle_outlier_fraction_distribution_protenix_alts.png")
+    return
+
+
+@app.cell
+def _(bond_stats, make_delta_frame, make_ridge_plot, save_fig, smoothing):
+    _delta = make_delta_frame(bond_stats, "outlier_fraction_bond_angles")
+    _g = make_ridge_plot(
+        _delta.query("delta_outlier_fraction_bond_angles < 0.05 and model_name in @MODELS_RF3_GROUP"),
+        "delta_outlier_fraction_bond_angles", is_delta=True, smoothing=smoothing.value,
+    )
+    save_fig(_g, "03_delta_bond_angle_outlier_fraction_distribution_rf3_alts.png")
     return
 
 

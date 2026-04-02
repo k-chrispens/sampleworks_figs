@@ -32,6 +32,12 @@ COLOR_GOOD_DARKBLUE = "#4B5FAA"
 COLOR_GOOD_TEAL = "#4FB9AF"
 COLOR_GOOD_NAVAHO = "#FFE0AC"
 COLOR_GOOD_PINK = "#FFACB7"
+COLOR_GOOD_LIGHTBLUE = "#8EDCE6"
+
+# Model groups for split plotting
+MODELS_ALT = {"protenix-mini", "protenix-tiny", "rf3-old", "rf3-chiral-off"}
+MODELS_PROTENIX_GROUP = ["protenix", "protenix-mini", "protenix-tiny"]
+MODELS_RF3_GROUP = ["rf3", "rf3-old", "rf3-chiral-off"]
 
 GUIDANCE_PALETTE = {
     "baseline": "#888888",
@@ -48,11 +54,11 @@ MODEL_PALETTE = {
     "boltz2X-RAY": COLOR_GOOD_DARKBLUE,
     "boltz2MD": COLOR_GOOD_TEAL,
     "protenix": COLOR_GOOD_PINK,
-    "rf3": COLOR_GOOD_NAVAHO,
+    "rf3": "#FFD700",
     "ground_truth": COLOR_GOOD_GRAY,
     "protenix-mini": "#FF6B9D",
     "protenix-tiny": "#CC3377",
-    "rf3-fixed": "#FFD700",
+    "rf3-old": COLOR_GOOD_NAVAHO,
     "rf3-chiral-off": "#DAA520",
 }
 
@@ -100,6 +106,7 @@ MODEL_DISPLAY = {
     "boltz2_X-RAY_DIFFRACTION": "Boltz2-XRD",
     "boltz2_MD": "Boltz2-MD",
     "rf3": "RF3",
+    "rf3-old": "RF3-Old",
     "protenix": "Protenix",
     "boltz2X-RAY_DIFFRACTION": "Boltz2-XRD",
     "boltz2X-RAY": "Boltz2-XRD",
@@ -109,7 +116,6 @@ MODEL_DISPLAY = {
     "ground_truth": "Ground truth",
     "protenix-mini": "Protenix-Mini",
     "protenix-tiny": "Protenix-Tiny",
-    "rf3-fixed": "RF3-Fixed",
     "rf3-chiral-off": "RF3-Chiral-Off",
 }
 
@@ -118,6 +124,8 @@ MODEL_NAME_ALIAS = {
     "boltz2_MD": "boltz2MD",
     "boltz2xray": "boltz2X-RAY",
     "boltz2md": "boltz2MD",
+    "rf3": "rf3-old",
+    "rf3-fixed": "rf3",
 }
 
 NICE_XLABELS = {
@@ -247,6 +255,7 @@ def tag_path_dataframe(
             df[col] = val
     df = add_simplified_metadata_columns(df)
     df["protein"] = df.pdb_id.str.lower()
+    df["model_name"] = df["model_name"].map(lambda x: MODEL_NAME_ALIAS.get(x, x))
     return df
 
 
@@ -328,6 +337,12 @@ def load_and_tag_path_csv_fast(
             .replace_strict(GW_TO_STRENGTH, default=None, return_dtype=pl.String)
             .alias("guidance_strength"),
         )
+        .with_columns(
+            pl.col("model_name")
+            .replace_strict(MODEL_NAME_ALIAS, default=None, return_dtype=pl.String)
+            .fill_null(pl.col("model_name"))
+            .alias("model_name"),
+        )
         .collect()
         .to_pandas()
     )
@@ -353,6 +368,7 @@ def load_rscc(csv_path: str) -> pd.DataFrame:
         lambda x: x["model"] + x["method"] if x["model"] == "boltz2" else x["model"],
         axis=1,
     )
+    df["model_name"] = df["model_name"].map(lambda x: MODEL_NAME_ALIAS.get(x, x))
     df = df[
         [
             "protein",
@@ -397,6 +413,7 @@ def load_lddt(csv_path: str) -> pd.DataFrame:
         lambda x: x["model"] + x["method"] if x["model"] == "boltz2" else x["model"],
         axis=1,
     )
+    df["model_name"] = df["model_name"].map(lambda x: MODEL_NAME_ALIAS.get(x, x))
     return df[_cols]
 
 
@@ -843,7 +860,7 @@ def make_tradeoff_grid(
     if model_order is None:
         model_order = [
             "boltz2X-RAY", "boltz2MD", "protenix", "rf3",
-            "protenix-mini", "protenix-tiny", "rf3-fixed", "rf3-chiral-off",
+            "protenix-mini", "protenix-tiny", "rf3-old", "rf3-chiral-off",
         ]
     # Keep only models present in the data
     _present = set(tradeoff_df["model_name"].unique())
@@ -1043,7 +1060,7 @@ def annotate_tradeoff_highlights(
     if model_order is None:
         model_order = [
             "boltz2X-RAY", "boltz2MD", "protenix", "rf3",
-            "protenix-mini", "protenix-tiny", "rf3-fixed", "rf3-chiral-off",
+            "protenix-mini", "protenix-tiny", "rf3-old", "rf3-chiral-off",
         ]
     if guidance_order is None:
         guidance_order = ["weak", "medium", "strong"]
@@ -1328,7 +1345,7 @@ def make_conceptual_tradeoff_figure(
         m
         for m in [
             "boltz2X-RAY", "boltz2MD", "protenix", "rf3",
-            "protenix-mini", "protenix-tiny", "rf3-fixed", "rf3-chiral-off",
+            "protenix-mini", "protenix-tiny", "rf3-old", "rf3-chiral-off",
         ]
         if m in plot_df["model_name"].unique()
     ] or sorted(plot_df["model_name"].unique())
@@ -1379,6 +1396,8 @@ def make_spiral_figure(
     model_key: str,
     *,
     label_top_n: int = 5,
+    xlim: tuple[float, float] | None = None,
+    ylim: tuple[float, float] | None = None,
 ):
     """Create a single-model guidance spiral trajectory figure.
 
@@ -1390,12 +1409,15 @@ def make_spiral_figure(
         Internal model name (for display and filename).
     label_top_n : int
         Number of most-extreme trajectories to label.
+    xlim, ylim : tuple[float, float] or None
+        Fixed axis limits. When *None* (default) the limits are computed
+        from *model_df* alone (original behaviour).
 
     Returns
     -------
     matplotlib.figure.Figure
     """
-    cmap = plt.cm.RdYlBu_r
+    cmap = sns.color_palette("flare", as_cmap=True)
     fig, ax = plt.subplots(figsize=(7, 6))
 
     gw_values = sorted(model_df["guidance_weight"].unique())
@@ -1468,14 +1490,18 @@ def make_spiral_figure(
     ax.axvline(0, color="#555555", ls="--", lw=0.8, alpha=0.5)
     ax.axhline(0, color="#555555", ls="--", lw=0.8, alpha=0.5)
 
-    mx = model_df["delta_rscc"].replace([np.inf, -np.inf], np.nan).dropna()
-    my = model_df["geometry_penalty"].replace([np.inf, -np.inf], np.nan).dropna()
-    x_lo, x_hi = min(0.0, float(mx.min())), max(0.0, float(mx.max()))
-    y_lo, y_hi = min(0.0, float(my.min())), max(0.0, float(my.max()))
-    x_pad = max(0.08 * (x_hi - x_lo), 0.02)
-    y_pad = max(0.08 * (y_hi - y_lo), 0.50)
-    ax.set_xlim(x_lo - x_pad, x_hi + x_pad)
-    ax.set_ylim(y_lo - y_pad, y_hi + y_pad)
+    if xlim is not None and ylim is not None:
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+    else:
+        mx = model_df["delta_rscc"].replace([np.inf, -np.inf], np.nan).dropna()
+        my = model_df["geometry_penalty"].replace([np.inf, -np.inf], np.nan).dropna()
+        x_lo, x_hi = min(0.0, float(mx.min())), max(0.0, float(mx.max()))
+        y_lo, y_hi = min(0.0, float(my.min())), max(0.0, float(my.max()))
+        x_pad = max(0.08 * (x_hi - x_lo), 0.02)
+        y_pad = max(0.08 * (y_hi - y_lo), 0.50)
+        ax.set_xlim(x_lo - x_pad, x_hi + x_pad)
+        ax.set_ylim(y_lo - y_pad, y_hi + y_pad)
 
     ax.set_xlabel("Δ RSCC vs. baseline", fontsize=11)
     ax.set_ylabel("∆ Geometry penalty vs. baseline", fontsize=11)

@@ -7,6 +7,7 @@ app = marimo.App()
 @app.cell
 def _():
     import marimo as mo
+
     return (mo,)
 
 
@@ -20,11 +21,16 @@ def _():
         load_and_tag_path_csv,
         load_and_tag_path_csv_fast,
         save_fig,
+        MODELS_ALT,
+        MODELS_PROTENIX_GROUP,
+        MODELS_RF3_GROUP,
     )
+
     return (
+        MODELS_PROTENIX_GROUP,
+        MODELS_RF3_GROUP,
         load_and_tag_path_csv,
         load_and_tag_path_csv_fast,
-        np,
         pd,
         plt,
         save_fig,
@@ -34,12 +40,9 @@ def _():
 
 @app.cell
 def _(mo):
-    load_residues = mo.ui.switch(label="Load per-residue data (1.8 GB)", value=False)
+    load_residues = mo.ui.switch(label="Load per-residue data (large file!)", value=False)
     mo.vstack([load_residues])
     return (load_residues,)
-
-
-# ── Backbone and Sidechain Dihedrals ─────────────────────────────────────────
 
 
 @app.cell(hide_code=True)
@@ -87,8 +90,8 @@ def _(dihedrals_summary):
     (
         dihedrals_summary.reset_index()
         .query(
-            "(model_name not in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.1) or "
-            "(model_name in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.01)"
+            "(model_name not in ['rf3','rf3-old','rf3-chiral-off'] and guidance_weight == 0.1) or "
+            "(model_name in ['rf3','rf3-old','rf3-chiral-off'] and guidance_weight == 0.01)"
         )
         .pivot(
             index="pdb_id",
@@ -100,12 +103,12 @@ def _(dihedrals_summary):
 
 
 @app.cell
-def _(dihedrals_summary, pd, plt, save_fig, sns):
+def _(dihedrals_summary, pd):
     _dsw = (
         dihedrals_summary.reset_index()
         .query(
-            "(model_name not in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.1) or "
-            "(model_name in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.01)"
+            "(model_name not in ['rf3','rf3-old','rf3-chiral-off'] and guidance_weight == 0.1) or "
+            "(model_name in ['rf3','rf3-old','rf3-chiral-off'] and guidance_weight == 0.01)"
         )
         .dropna()
         .assign(guidance="weak")
@@ -113,8 +116,8 @@ def _(dihedrals_summary, pd, plt, save_fig, sns):
     _dss = (
         dihedrals_summary.reset_index()
         .query(
-            "(model_name not in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.5) or "
-            "(model_name in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.05)"
+            "(model_name not in ['rf3','rf3-old','rf3-chiral-off'] and guidance_weight == 0.5) or "
+            "(model_name in ['rf3','rf3-old','rf3-chiral-off'] and guidance_weight == 0.05)"
         )
         .dropna()
         .assign(guidance="strong")
@@ -126,11 +129,16 @@ def _(dihedrals_summary, pd, plt, save_fig, sns):
         .assign(guidance="baseline")
     )
     ds = pd.concat([_dsw, _dss, _dsb])
+    ds_orig = ds.query("model_name not in @MODELS_ALT").copy()
+    return ds, ds_orig
 
+
+@app.cell
+def _(ds_orig, plt, save_fig, sns):
     _hue_order = ["weak", "strong", "baseline"]
     _palette = {"weak": "#377EB8", "strong": "#E41A1C", "baseline": "#888888"}
     _g = sns.FacetGrid(
-        ds, row="model_name", hue="guidance", hue_order=_hue_order,
+        ds_orig, row="model_name", hue="guidance", hue_order=_hue_order,
         aspect=5, height=1.5, palette=_palette,
     )
     _g.map(sns.kdeplot, "ramachandran_z_score", bw_adjust=0.5, clip_on=False, fill=True, alpha=0.75, linewidth=1.5)
@@ -150,15 +158,43 @@ def _(dihedrals_summary, pd, plt, save_fig, sns):
     _g.set(xticks=[-9, -6, -3, 0, 3, 6])
     _g.despine(bottom=True, left=True)
     save_fig(_g, "04_ramachandran_zscore_kde_by_model.png")
-    return (ds,)
+    return
 
 
 @app.cell
-def _(ds, plt, save_fig, sns):
+def _(MODELS_PROTENIX_GROUP, MODELS_RF3_GROUP, ds, plt, save_fig, sns):
+    for _group, _tag in [(MODELS_PROTENIX_GROUP, "protenix_alts"), (MODELS_RF3_GROUP, "rf3_alts")]:
+        _ds_sub = ds.query("model_name in @_group")
+        _hue_order = ["weak", "strong", "baseline"]
+        _palette = {"weak": "#377EB8", "strong": "#E41A1C", "baseline": "#888888"}
+        _g = sns.FacetGrid(
+            _ds_sub, row="model_name", hue="guidance", hue_order=_hue_order,
+            aspect=5, height=1.5, palette=_palette,
+        )
+        _g.map(sns.kdeplot, "ramachandran_z_score", bw_adjust=0.5, clip_on=False, fill=True, alpha=0.75, linewidth=1.5)
+        _g.map(sns.kdeplot, "ramachandran_z_score", clip_on=False, color="w", lw=2, bw_adjust=0.5)
+        _g.refline(y=0, linewidth=2, linestyle="-", color=None, clip_on=False)
+        def _label(*x, color=None, label=None):
+            text = x[0].iloc[0]
+            ax = plt.gca()
+            ax.text(0, 0.2, text, fontweight="bold", color="black", ha="left", va="center", transform=ax.transAxes)
+            ax.text(0, 0.4 if label == "strong" else 0.6, label, fontweight="bold", color=color, ha="left", va="center", transform=ax.transAxes)
+        _g.map(_label, "model_name")
+        _g.set(xlabel="Ramachandran Z-Score")
+        _g.set_titles("")
+        _g.set(yticks=[0.0, 0.2, 0.4], ylabel="")
+        _g.set(xticks=[-9, -6, -3, 0, 3, 6])
+        _g.despine(bottom=True, left=True)
+        save_fig(_g, f"04_ramachandran_zscore_kde_by_model_{_tag}.png")
+    return
+
+
+@app.cell
+def _(ds_orig, plt, save_fig, sns):
     _hue_order = ["weak", "strong"]
     _palette = {"weak": "#377EB8", "strong": "#E41A1C"}
     _g = sns.FacetGrid(
-        ds, row="model_name", hue="guidance", hue_order=_hue_order,
+        ds_orig, row="model_name", hue="guidance", hue_order=_hue_order,
         aspect=5, height=1.5, palette=_palette,
     )
     _g.map(sns.kdeplot, "torsion_z_score", bw_adjust=0.5, clip_on=False, fill=True, alpha=0.75, linewidth=1.5)
@@ -181,7 +217,32 @@ def _(ds, plt, save_fig, sns):
     return
 
 
-# ── Per-Residue Analysis (optional heavy data) ───────────────────────────────
+@app.cell
+def _(MODELS_PROTENIX_GROUP, MODELS_RF3_GROUP, ds, plt, save_fig, sns):
+    for _group, _tag in [(MODELS_PROTENIX_GROUP, "protenix_alts"), (MODELS_RF3_GROUP, "rf3_alts")]:
+        _ds_sub = ds.query("model_name in @_group")
+        _hue_order = ["weak", "strong"]
+        _palette = {"weak": "#377EB8", "strong": "#E41A1C"}
+        _g = sns.FacetGrid(
+            _ds_sub, row="model_name", hue="guidance", hue_order=_hue_order,
+            aspect=5, height=1.5, palette=_palette,
+        )
+        _g.map(sns.kdeplot, "torsion_z_score", bw_adjust=0.5, clip_on=False, fill=True, alpha=0.75, linewidth=1.5)
+        _g.map(sns.kdeplot, "torsion_z_score", clip_on=False, color="w", lw=2, bw_adjust=0.5)
+        _g.refline(y=0, linewidth=2, linestyle="-", color=None, clip_on=False)
+        def _label(x, color, label):
+            text = x.iloc[0]
+            ax = plt.gca()
+            ax.text(0, 0.2, text, fontweight="bold", color="black", ha="left", va="center", transform=ax.transAxes)
+            ax.text(0, 0.4 if label == "strong" else 0.6, label, fontweight="bold", color=color, ha="left", va="center", transform=ax.transAxes)
+        _g.map(_label, "model_name")
+        _g.set(xlabel="Torsion Z-Score")
+        _g.set_titles("")
+        _g.set(yticks=[0.0, 0.2, 0.4], ylabel="")
+        _g.set(xticks=[-9, -6, -3, 0, 3, 6])
+        _g.despine(bottom=True, left=True)
+        save_fig(_g, f"05_torsion_zscore_kde_by_model_{_tag}.png")
+    return
 
 
 @app.cell(hide_code=True)
@@ -263,12 +324,12 @@ def _(torsion_res):
 
 
 @app.cell
-def _(dihedral_means, pd, plt, save_fig, sns):
+def _(dihedral_means, pd):
     _dsw = (
         dihedral_means.reset_index()
         .query(
-            "(model_name not in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.1) or "
-            "(model_name in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.01)"
+            "(model_name not in ['rf3','rf3-old','rf3-chiral-off'] and guidance_weight == 0.1) or "
+            "(model_name in ['rf3','rf3-old','rf3-chiral-off'] and guidance_weight == 0.01)"
         )
         .dropna()
         .assign(guidance="weak")
@@ -276,18 +337,23 @@ def _(dihedral_means, pd, plt, save_fig, sns):
     _dss = (
         dihedral_means.reset_index()
         .query(
-            "(model_name not in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.5) or "
-            "(model_name in ['rf3','rf3-fixed','rf3-chiral-off'] and guidance_weight == 0.05)"
+            "(model_name not in ['rf3','rf3-old','rf3-chiral-off'] and guidance_weight == 0.5) or "
+            "(model_name in ['rf3','rf3-old','rf3-chiral-off'] and guidance_weight == 0.05)"
         )
         .dropna()
         .assign(guidance="strong")
     )
     ds_1 = pd.concat([_dsw, _dss])
+    ds_1_orig = ds_1.query("model_name not in @MODELS_ALT").copy()
+    return ds_1, ds_1_orig
 
+
+@app.cell
+def _(ds_1_orig, plt, save_fig, sns):
     _hue_order = ["weak", "strong"]
     _palette = {"weak": "#377EB8", "strong": "#E41A1C"}
     _g = sns.FacetGrid(
-        ds_1, row="model_name", hue="guidance", hue_order=_hue_order,
+        ds_1_orig, row="model_name", hue="guidance", hue_order=_hue_order,
         aspect=5, height=1.5, palette=_palette,
     )
     _g.map(sns.kdeplot, "ramachandran_z_score", bw_adjust=0.5, clip_on=False, fill=True, alpha=0.75, linewidth=1.5)
@@ -306,15 +372,40 @@ def _(dihedral_means, pd, plt, save_fig, sns):
     _g.set(yticks=[0, 2, 4], ylabel="")
     _g.despine(bottom=True, left=True)
     save_fig(_g, "06_ramachandran_zscore_residue_mean_kde.png")
-    return (ds_1,)
+    return
 
 
 @app.cell
-def _(ds_1, plt, save_fig, sns):
+def _(MODELS_PROTENIX_GROUP, MODELS_RF3_GROUP, ds_1, plt, save_fig, sns):
+    for _group, _tag in [(MODELS_PROTENIX_GROUP, "protenix_alts"), (MODELS_RF3_GROUP, "rf3_alts")]:
+        _ds_sub = ds_1.query("model_name in @_group")
+        _g = sns.FacetGrid(
+            _ds_sub, row="model_name", hue="guidance", hue_order=["weak", "strong"],
+            aspect=5, height=1.5, palette={"weak": "#377EB8", "strong": "#E41A1C"},
+        )
+        _g.map(sns.kdeplot, "ramachandran_z_score", bw_adjust=0.5, clip_on=False, fill=True, alpha=0.75, linewidth=1.5)
+        _g.map(sns.kdeplot, "ramachandran_z_score", clip_on=False, color="w", lw=2, bw_adjust=0.5)
+        _g.refline(y=0, linewidth=2, linestyle="-", color=None, clip_on=False)
+        def _label(x, color, label):
+            text = x.iloc[0]
+            ax = plt.gca()
+            ax.text(0, 0.2, text, fontweight="bold", color="black", ha="left", va="center", transform=ax.transAxes)
+            ax.text(0, 0.4 if label == "strong" else 0.6, label, fontweight="bold", color=color, ha="left", va="center", transform=ax.transAxes)
+        _g.map(_label, "model_name")
+        _g.set(xlabel="Ramachandran Z-Score")
+        _g.set_titles("")
+        _g.set(yticks=[0, 2, 4], ylabel="")
+        _g.despine(bottom=True, left=True)
+        save_fig(_g, f"06_ramachandran_zscore_residue_mean_kde_{_tag}.png")
+    return
+
+
+@app.cell
+def _(ds_1_orig, plt, save_fig, sns):
     _hue_order = ["weak", "strong"]
     _palette = {"weak": "#377EB8", "strong": "#E41A1C"}
     _g = sns.FacetGrid(
-        ds_1, row="model_name", hue="guidance", hue_order=_hue_order,
+        ds_1_orig, row="model_name", hue="guidance", hue_order=_hue_order,
         aspect=5, height=1.5, palette=_palette,
     )
     _g.map(sns.kdeplot, "torsion_z_score", bw_adjust=0.5, clip_on=False, fill=True, alpha=0.75, linewidth=1.5)
@@ -333,6 +424,31 @@ def _(ds_1, plt, save_fig, sns):
     _g.set(yticks=[0, 2, 4], ylabel="")
     _g.despine(bottom=True, left=True)
     save_fig(_g, "07_torsion_zscore_residue_mean_kde.png")
+    return
+
+
+@app.cell
+def _(MODELS_PROTENIX_GROUP, MODELS_RF3_GROUP, ds_1, plt, save_fig, sns):
+    for _group, _tag in [(MODELS_PROTENIX_GROUP, "protenix_alts"), (MODELS_RF3_GROUP, "rf3_alts")]:
+        _ds_sub = ds_1.query("model_name in @_group")
+        _g = sns.FacetGrid(
+            _ds_sub, row="model_name", hue="guidance", hue_order=["weak", "strong"],
+            aspect=5, height=1.5, palette={"weak": "#377EB8", "strong": "#E41A1C"},
+        )
+        _g.map(sns.kdeplot, "torsion_z_score", bw_adjust=0.5, clip_on=False, fill=True, alpha=0.75, linewidth=1.5)
+        _g.map(sns.kdeplot, "torsion_z_score", clip_on=False, color="w", lw=2, bw_adjust=0.5)
+        _g.refline(y=0, linewidth=2, linestyle="-", color=None, clip_on=False)
+        def _label(x, color, label):
+            text = x.iloc[0]
+            ax = plt.gca()
+            ax.text(0, 0.2, text, fontweight="bold", color="black", ha="left", va="center", transform=ax.transAxes)
+            ax.text(0, 0.4 if label == "strong" else 0.6, label, fontweight="bold", color=color, ha="left", va="center", transform=ax.transAxes)
+        _g.map(_label, "model_name")
+        _g.set(xlabel="Torsion Z-Score")
+        _g.set_titles("")
+        _g.set(yticks=[0, 2, 4], ylabel="")
+        _g.despine(bottom=True, left=True)
+        save_fig(_g, f"07_torsion_zscore_residue_mean_kde_{_tag}.png")
     return
 
 

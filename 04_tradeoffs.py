@@ -33,11 +33,14 @@ def _():
         robust_z_score,
         MODEL_DISPLAY,
         MODEL_NAME_ALIAS,
+        MODELS_PROTENIX_GROUP,
+        MODELS_RF3_GROUP,
     )
 
     return (
+        MODELS_PROTENIX_GROUP,
+        MODELS_RF3_GROUP,
         MODEL_DISPLAY,
-        MODEL_NAME_ALIAS,
         add_simplified_metadata_columns,
         annotate_tradeoff_highlights,
         compute_conceptual_tradeoff_limits,
@@ -48,6 +51,7 @@ def _():
         make_delta_frame,
         make_spiral_figure,
         make_tradeoff_grid,
+        np,
         pd,
         plt,
         robust_z_score,
@@ -195,7 +199,6 @@ def _(
 
 @app.cell
 def _(
-    MODEL_NAME_ALIAS,
     bond_angle_delta,
     bond_length_delta,
     clash_delta,
@@ -207,18 +210,15 @@ def _(
     torsion_z_term,
 ):
     _merge_on = ["protein", "model_name", "guidance_weight", "guidance_strength"]
-    _alias = lambda df: df.assign(
-        model_name=df["model_name"].map(lambda x: MODEL_NAME_ALIAS.get(x, x))
-    )
 
     tradeoff_df = (
-        _alias(clash_delta)
-        .merge(_alias(bond_angle_delta), on=_merge_on)
-        .merge(_alias(bond_length_delta), on=_merge_on)
-        .merge(_alias(rama_z_term), on=_merge_on)
-        .merge(_alias(torsion_z_term), on=_merge_on)
-        .merge(_alias(rscc_delta_tradeoff), on=_merge_on, how="left")
-        .merge(_alias(lddt_delta), on=_merge_on, how="left")
+        clash_delta
+        .merge(bond_angle_delta, on=_merge_on)
+        .merge(bond_length_delta, on=_merge_on)
+        .merge(rama_z_term, on=_merge_on)
+        .merge(torsion_z_term, on=_merge_on)
+        .merge(rscc_delta_tradeoff, on=_merge_on, how="left")
+        .merge(lddt_delta, on=_merge_on, how="left")
     )
 
     tradeoff_df["guidance_order"] = tradeoff_df["guidance_strength"].map(
@@ -335,7 +335,7 @@ def _(pd, tradeoff_df):
         )
         .reindex([
             "boltz2X-RAY", "boltz2MD", "protenix", "rf3",
-            "protenix-mini", "protenix-tiny", "rf3-fixed", "rf3-chiral-off",
+            "protenix-mini", "protenix-tiny", "rf3-old", "rf3-chiral-off",
         ])
         .reset_index()
     )
@@ -424,15 +424,40 @@ def _(weak_tradeoff):
 
 @app.cell
 def _(make_tradeoff_grid, plt, save_fig, tradeoff_df):
+    _orig = ["boltz2X-RAY", "boltz2MD", "protenix", "rf3"]
     _fig, _axes, _mo = make_tradeoff_grid(
         tradeoff_df,
         "geometry_penalty",
         "Simple geometry score",
+        model_order=_orig,
         trajectory_protein="5i09",
         title="Guidance trade-offs by model (simple geometry penalty; weak/medium/strong)",
     )
     save_fig(_fig, "14_tradeoff_scatter_all_guidance.png")
     plt.show()
+    return
+
+
+@app.cell
+def _(
+    MODELS_PROTENIX_GROUP,
+    MODELS_RF3_GROUP,
+    make_tradeoff_grid,
+    plt,
+    save_fig,
+    tradeoff_df,
+):
+    for _group, _tag in [(MODELS_PROTENIX_GROUP, "protenix_alts"), (MODELS_RF3_GROUP, "rf3_alts")]:
+        _fig, _, _ = make_tradeoff_grid(
+            tradeoff_df,
+            "geometry_penalty",
+            "Simple geometry score",
+            model_order=_group,
+            trajectory_protein="5i09",
+            title=f"Guidance trade-offs ({_tag.replace('_', ' ')})",
+        )
+        save_fig(_fig, f"14_tradeoff_scatter_all_guidance_{_tag}.png")
+        plt.show()
     return
 
 
@@ -454,24 +479,35 @@ def _(mo):
 
 
 @app.cell
-def _(MODEL_DISPLAY, make_spiral_figure, plt, save_fig, tradeoff_df):
+def _(MODEL_DISPLAY, make_spiral_figure, np, plt, save_fig, tradeoff_df):
     _spiral_nums = {
         "boltz2X-RAY": 21, "boltz2MD": 22, "protenix": 23, "rf3": 24,
-        "protenix-mini": 25, "protenix-tiny": 26, "rf3-fixed": 27, "rf3-chiral-off": 28,
+        "protenix-mini": 25, "protenix-tiny": 26, "rf3-old": 27, "rf3-chiral-off": 28,
     }
     _model_order = [
         m for m in [
             "boltz2X-RAY", "boltz2MD", "protenix", "rf3",
-            "protenix-mini", "protenix-tiny", "rf3-fixed", "rf3-chiral-off",
+            "protenix-mini", "protenix-tiny", "rf3-old", "rf3-chiral-off",
         ]
         if m in tradeoff_df["model_name"].unique()
     ]
+
+    # Compute shared axis limits across all models
+    _mx = tradeoff_df["delta_rscc"].replace([np.inf, -np.inf], np.nan).dropna()
+    _my = tradeoff_df["geometry_penalty"].replace([np.inf, -np.inf], np.nan).dropna()
+    _x_lo, _x_hi = min(0.0, float(_mx.min())), max(0.0, float(_mx.max()))
+    _y_lo, _y_hi = min(0.0, float(_my.min())), max(0.0, float(_my.max()))
+    _x_pad = max(0.08 * (_x_hi - _x_lo), 0.02)
+    _y_pad = max(0.08 * (_y_hi - _y_lo), 0.50)
+    _shared_xlim = (_x_lo - _x_pad, _x_hi + _x_pad)
+    _shared_ylim = (_y_lo - _y_pad, _y_hi + _y_pad)
+
     for _model in _model_order:
         _model_df = tradeoff_df[tradeoff_df["model_name"] == _model].copy()
         if _model_df.empty:
             continue
         _slug = MODEL_DISPLAY.get(_model, _model).lower().replace("-", "_")
-        _fig = make_spiral_figure(_model_df, _model)
+        _fig = make_spiral_figure(_model_df, _model, xlim=_shared_xlim, ylim=_shared_ylim)
         save_fig(_fig, f"{_spiral_nums[_model]:02d}_spiral_{_slug}.png")
         plt.show()
     return
@@ -562,8 +598,10 @@ def _(
     tradeoff_df,
     tradeoff_highlight_points,
 ):
+    _orig = ["boltz2X-RAY", "boltz2MD", "protenix", "rf3"]
     _fig, _axes, _mo = make_tradeoff_grid(
         tradeoff_df, "geometry_penalty", "Simple geometry score",
+        model_order=_orig,
         scatter_size=14, scatter_alpha=0.22, show_centroids=False,
     )
     annotate_tradeoff_highlights(
@@ -597,8 +635,10 @@ def _(
     tradeoff_df,
     tradeoff_highlight_points,
 ):
+    _orig = ["boltz2X-RAY", "boltz2MD", "protenix", "rf3"]
     _fig, _axes, _mo = make_tradeoff_grid(
         tradeoff_df, "tortoize_combined_score", "Combined Tortoize",
+        model_order=_orig,
         scatter_size=14, scatter_alpha=0.22, show_centroids=False,
     )
     annotate_tradeoff_highlights(

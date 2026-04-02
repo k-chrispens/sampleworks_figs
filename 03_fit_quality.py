@@ -27,9 +27,14 @@ def _():
         save_model_legend,
         MODEL_PALETTE,
         MODEL_DISPLAY,
+        MODELS_ALT,
+        MODELS_PROTENIX_GROUP,
+        MODELS_RF3_GROUP,
     )
 
     return (
+        MODELS_PROTENIX_GROUP,
+        MODELS_RF3_GROUP,
         add_simplified_metadata_columns,
         load_lddt,
         load_rscc,
@@ -66,11 +71,27 @@ def _(add_simplified_metadata_columns, rscc):
 @app.cell
 def _(make_ridge_plot, rscc_all, save_fig):
     _fig = make_ridge_plot(
-        rscc_all.query("guidance_strength == 'baseline'"),
-        "rscc",
-        combined=True,
+        rscc_all.query("guidance_strength == 'baseline' and model_name not in @MODELS_ALT"),
+        "rscc", combined=True,
     )
     save_fig(_fig, "08_rscc_baseline_all_models.png")
+    return
+
+
+@app.cell
+def _(
+    MODELS_PROTENIX_GROUP,
+    MODELS_RF3_GROUP,
+    make_ridge_plot,
+    rscc_all,
+    save_fig,
+):
+    for _group, _tag in [(MODELS_PROTENIX_GROUP, "protenix_alts"), (MODELS_RF3_GROUP, "rf3_alts")]:
+        _fig = make_ridge_plot(
+            rscc_all.query("guidance_strength == 'baseline' and model_name in @_group"),
+            "rscc", combined=True,
+        )
+        save_fig(_fig, f"08_rscc_baseline_all_models_{_tag}.png")
     return
 
 
@@ -83,10 +104,27 @@ def _(save_model_legend):
 @app.cell
 def _(make_ridge_plot, rscc_all, save_fig):
     _g = make_ridge_plot(
-        rscc_all.query("guidance_strength in ('baseline', 'weak')"),
+        rscc_all.query("guidance_strength in ('baseline', 'weak') and model_name not in @MODELS_ALT"),
         "rscc",
     )
     save_fig(_g, "09_rscc_baseline_vs_weak_distribution.png")
+    return
+
+
+@app.cell
+def _(
+    MODELS_PROTENIX_GROUP,
+    MODELS_RF3_GROUP,
+    make_ridge_plot,
+    rscc_all,
+    save_fig,
+):
+    for _group, _tag in [(MODELS_PROTENIX_GROUP, "protenix_alts"), (MODELS_RF3_GROUP, "rf3_alts")]:
+        _g = make_ridge_plot(
+            rscc_all.query("guidance_strength in ('baseline', 'weak') and model_name in @_group"),
+            "rscc",
+        )
+        save_fig(_g, f"09_rscc_baseline_vs_weak_distribution_{_tag}.png")
     return
 
 
@@ -118,11 +156,29 @@ def _(pd, rscc_all):
 def _(make_delta_frame, make_ridge_plot, rscc_all, save_fig):
     rscc_delta = make_delta_frame(rscc_all, "rscc")
     _g = make_ridge_plot(
-        rscc_delta.query("delta_rscc < 0.3 and delta_rscc > -0.3"),
-        "delta_rscc",
-        is_delta=True,
+        rscc_delta.query("delta_rscc < 0.3 and delta_rscc > -0.3 and model_name not in @MODELS_ALT"),
+        "delta_rscc", is_delta=True,
     )
     save_fig(_g, "10_delta_rscc_distribution.png")
+    return
+
+
+@app.cell
+def _(
+    MODELS_PROTENIX_GROUP,
+    MODELS_RF3_GROUP,
+    make_delta_frame,
+    make_ridge_plot,
+    rscc_all,
+    save_fig,
+):
+    _delta = make_delta_frame(rscc_all, "rscc")
+    for _group, _tag in [(MODELS_PROTENIX_GROUP, "protenix_alts"), (MODELS_RF3_GROUP, "rf3_alts")]:
+        _g = make_ridge_plot(
+            _delta.query("delta_rscc < 0.3 and delta_rscc > -0.3 and model_name in @_group"),
+            "delta_rscc", is_delta=True,
+        )
+        save_fig(_g, f"10_delta_rscc_distribution_{_tag}.png")
     return
 
 
