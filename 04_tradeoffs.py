@@ -209,7 +209,7 @@ def _(
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Figures 21–28 — Spiral Trajectory per Model
+    ## Figures 12–19 — Spiral Trajectory per Model
 
     Each figure traces every protein through (delta RSCC, geometry penalty) space
     as guidance weight increases. The top-N most extreme trajectories are labeled.
@@ -217,7 +217,7 @@ def _(mo):
     Select a model from the dropdown above to view its spiral. Toggle
     **Save all models at once** to batch-save all eight spirals in one run.
 
-    **Output:** `figures/21_spiral_boltz2_xrd.svg` through `figures/28_spiral_rf3_chiral_off.svg`
+    **Output:** `figures/12_spiral_boltz2_xrd.svg` through `figures/19_spiral_rf3_chiral_off.svg`
     """)
     return
 
@@ -235,8 +235,8 @@ def _(
     tradeoff_df,
 ):
     _spiral_nums = {
-        "boltz2X-RAY": 21, "boltz2MD": 22, "protenix": 23, "rf3": 24,
-        "protenix-mini": 25, "protenix-tiny": 26, "rf3-old": 27, "rf3-chiral-off": 28,
+        "boltz2X-RAY": 12, "boltz2MD": 13, "protenix": 14, "rf3": 15,
+        "protenix-mini": 16, "protenix-tiny": 17, "rf3-old": 18, "rf3-chiral-off": 19,
     }
     _all_models = [
         m for m in [

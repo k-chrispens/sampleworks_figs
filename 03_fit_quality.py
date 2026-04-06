@@ -149,13 +149,13 @@ def _(auto_save, save_model_legend):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Figure 08 — RSCC Baseline Distribution
+    ## Figure 04 — RSCC Baseline Distribution
 
     Ridge plot of RSCC values at the no-guidance baseline, showing all models
     overlaid on a single combined axis. This establishes the starting quality
     of each model before any guidance is applied.
 
-    **Output:** `figures/08_rscc_baseline_all_models[_variant].svg`
+    **Output:** `figures/04_rscc_baseline_all_models[_variant].svg`
     """)
     return
 
@@ -181,23 +181,23 @@ def _(
     else:
         _data = rscc_all.query("guidance_strength == 'baseline' and model_name in @MODELS_RF3_GROUP")
         _suffix = "_rf3_alts"
-    fig_08 = make_ridge_plot(_data, "rscc", combined=True)
+    fig_04 = make_ridge_plot(_data, "rscc", combined=True)
     if auto_save.value:
-        save_fig(fig_08, f"08_rscc_baseline_all_models{_suffix}.png")
-    fig_08
-    return (fig_08,)
+        save_fig(fig_04, f"04_rscc_baseline_all_models{_suffix}.png")
+    fig_04
+    return (fig_04,)
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Figure 09 — RSCC Baseline vs Weak Guidance
+    ## Figure 05 — RSCC Baseline vs Weak Guidance
 
     Ridge plot comparing RSCC distributions at baseline and weak guidance for
     each model. This reveals how much (if any) density-fit improvement
     comes from low-strength guidance.
 
-    **Output:** `figures/09_rscc_baseline_vs_weak_distribution[_variant].svg`
+    **Output:** `figures/05_rscc_baseline_vs_weak_distribution[_variant].svg`
     """)
     return
 
@@ -223,23 +223,23 @@ def _(
     else:
         _data = rscc_all.query("guidance_strength in ('baseline', 'weak') and model_name in @MODELS_RF3_GROUP")
         _suffix = "_rf3_alts"
-    fig_09 = make_ridge_plot(_data, "rscc")
+    fig_05 = make_ridge_plot(_data, "rscc")
     if auto_save.value:
-        save_fig(fig_09, f"09_rscc_baseline_vs_weak_distribution{_suffix}.png")
-    fig_09
-    return (fig_09,)
+        save_fig(fig_05, f"05_rscc_baseline_vs_weak_distribution{_suffix}.png")
+    fig_05
+    return (fig_05,)
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Figure 10 — Delta RSCC Distribution
+    ## Figure 06 — Delta RSCC Distribution
 
     Ridge plot of the change in RSCC from baseline across all guidance strengths.
     Positive delta means guidance improved density fit. Values are clipped to
     ±0.3 for readability.
 
-    **Output:** `figures/10_delta_rscc_distribution[_variant].svg`
+    **Output:** `figures/06_delta_rscc_distribution[_variant].svg`
     """)
     return
 
@@ -267,23 +267,23 @@ def _(
     else:
         _data = rscc_delta.query("delta_rscc < 0.3 and delta_rscc > -0.3 and model_name in @MODELS_RF3_GROUP")
         _suffix = "_rf3_alts"
-    fig_10 = make_ridge_plot(_data, "delta_rscc", is_delta=True)
+    fig_06 = make_ridge_plot(_data, "delta_rscc", is_delta=True)
     if auto_save.value:
-        save_fig(fig_10, f"10_delta_rscc_distribution{_suffix}.png")
-    fig_10
-    return (fig_10,)
+        save_fig(fig_06, f"06_delta_rscc_distribution{_suffix}.png")
+    fig_06
+    return (fig_06,)
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Figure 10b — Delta RSCC (Weak Guidance, All Models Combined)
+    ## Figure 07 — Delta RSCC (Weak Guidance, All Models Combined)
 
     Ridge plot of RSCC change at weak guidance only, with all main models shown
     on a single combined axis. This focuses on the most practically relevant
     guidance level.
 
-    **Output:** `figures/10b_delta_rscc_weak_all_models.svg`
+    **Output:** `figures/07_delta_rscc_weak_all_models.svg`
     """)
     return
 
@@ -291,7 +291,7 @@ def _(mo):
 @app.cell
 def _(auto_save, make_delta_frame, make_ridge_plot, rscc_all, save_fig):
     _delta = make_delta_frame(rscc_all, "rscc")
-    fig_10b = make_ridge_plot(
+    fig_07 = make_ridge_plot(
         _delta.query(
             "guidance_strength == 'weak'"
             " and delta_rscc < 0.3 and delta_rscc > -0.3"
@@ -303,20 +303,21 @@ def _(auto_save, make_delta_frame, make_ridge_plot, rscc_all, save_fig):
         combined=True,
     )
     if auto_save.value:
-        save_fig(fig_10b, "10b_delta_rscc_weak_all_models.png")
-    fig_10b
-    return (fig_10b,)
+        save_fig(fig_07, "07_delta_rscc_weak_all_models.png")
+    fig_07
+    return (fig_07,)
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Figure 10c — Delta RSCC (Weak Guidance, Protenix Group)
+    ## Figure 08 — Delta RSCC (Weak Guidance, Protenix Group)
 
-    Same as 10b but restricted to Protenix and its size variants, highlighting
-    how model capacity affects density-fit improvement under weak guidance.
+    Same as Figure 07 but restricted to Protenix and its size variants,
+    highlighting how model capacity affects density-fit improvement under
+    weak guidance.
 
-    **Output:** `figures/10c_delta_rscc_weak_protenix.svg`
+    **Output:** `figures/08_delta_rscc_weak_protenix.svg`
     """)
     return
 
@@ -331,7 +332,7 @@ def _(
     save_fig,
 ):
     _delta = make_delta_frame(rscc_all, "rscc")
-    fig_10c = make_ridge_plot(
+    fig_08 = make_ridge_plot(
         _delta.query(
             "guidance_strength == 'weak'"
             " and delta_rscc < 0.3 and delta_rscc > -0.3"
@@ -343,28 +344,28 @@ def _(
         combined=True,
     )
     if auto_save.value:
-        save_fig(fig_10c, "10c_delta_rscc_weak_protenix.png")
-    fig_10c
-    return (fig_10c,)
+        save_fig(fig_08, "08_delta_rscc_weak_protenix.png")
+    fig_08
+    return (fig_08,)
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Figure 11 — LDDT-to-Reference Baseline Distribution
+    ## Figure 09 — LDDT-to-Reference Baseline Distribution
 
     Ridge plot of average silhouette scores (LDDT-based clustering relative to
     the deposited reference structure) at baseline. Higher values indicate the
     model's predicted ensemble is closer to the experimental structure.
 
-    **Output:** `figures/11_lddt_to_ref_baseline_distribution.svg`
+    **Output:** `figures/09_lddt_to_ref_baseline_distribution.svg`
     """)
     return
 
 
 @app.cell
 def _(auto_save, lddt_results_1, make_ridge_plot, save_fig, smoothing):
-    fig_11 = make_ridge_plot(
+    fig_09 = make_ridge_plot(
         lddt_results_1.query("guidance_strength == 'baseline' and selection_name != 'all altloc'"),
         plot_column_name="avg_silhouette_to_ref",
         custom_xlabel="Average Silhouette Score to Reference (LDDT Clustering)",
@@ -372,59 +373,59 @@ def _(auto_save, lddt_results_1, make_ridge_plot, save_fig, smoothing):
         combined=True,
     )
     if auto_save.value:
-        save_fig(fig_11, "11_lddt_to_ref_baseline_distribution.png")
-    fig_11
-    return (fig_11,)
+        save_fig(fig_09, "09_lddt_to_ref_baseline_distribution.png")
+    fig_09
+    return (fig_09,)
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Figure 12 — LDDT-to-Reference Across All Guidance Strengths
+    ## Figure 10 — LDDT-to-Reference Across All Guidance Strengths
 
     Ridge plot of silhouette-to-reference scores across baseline, weak, and
     strong guidance for every model. Shows whether increasing guidance
     drives predictions closer to or further from the reference.
 
-    **Output:** `figures/12_lddt_to_ref_all_guidance_distribution.svg`
+    **Output:** `figures/10_lddt_to_ref_all_guidance_distribution.svg`
     """)
     return
 
 
 @app.cell
 def _(auto_save, lddt_results_1, make_ridge_plot, save_fig, smoothing):
-    fig_12 = make_ridge_plot(
+    fig_10 = make_ridge_plot(
         lddt_results_1.query("selection_name != 'all altloc'"),
         "avg_silhouette_to_ref",
         smoothing=smoothing.value,
     )
     if auto_save.value:
-        save_fig(fig_12, "12_lddt_to_ref_all_guidance_distribution.png")
-    fig_12
-    return (fig_12,)
+        save_fig(fig_10, "10_lddt_to_ref_all_guidance_distribution.png")
+    fig_10
+    return (fig_10,)
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Figure 13 — Delta LDDT-to-Reference Distribution
+    ## Figure 11 — Delta LDDT-to-Reference Distribution
 
     Ridge plot of the change in silhouette-to-reference score from baseline.
     Positive delta means guidance moved predictions closer to the experimental
     reference structure.
 
-    **Output:** `figures/13_delta_lddt_to_ref_distribution.svg`
+    **Output:** `figures/11_delta_lddt_to_ref_distribution.svg`
     """)
     return
 
 
 @app.cell
 def _(auto_save, lddt_merged, make_ridge_plot, save_fig):
-    fig_13 = make_ridge_plot(lddt_merged, "delta_silhouette_to_ref", is_delta=True)
+    fig_11 = make_ridge_plot(lddt_merged, "delta_silhouette_to_ref", is_delta=True)
     if auto_save.value:
-        save_fig(fig_13, "13_delta_lddt_to_ref_distribution.png")
-    fig_13
-    return (fig_13,)
+        save_fig(fig_11, "11_delta_lddt_to_ref_distribution.png")
+    fig_11
+    return (fig_11,)
 
 
 if __name__ == "__main__":
