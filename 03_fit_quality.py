@@ -33,6 +33,7 @@ def _():
     )
 
     return (
+        MODELS_ALT,
         MODELS_PROTENIX_GROUP,
         MODELS_RF3_GROUP,
         add_simplified_metadata_columns,
@@ -49,9 +50,39 @@ def _():
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    # RSCC results
+    # Fit Quality Analysis
+
+    This notebook evaluates how well guided structure predictions fit
+    experimental data, using two complementary metrics:
+
+    1. **RSCC (Real Space Correlation Coefficient)** — measures how well the
+       predicted model density matches the observed electron density map.
+       Values closer to 1.0 indicate better fit.
+    2. **LDDT-based silhouette score** — measures structural clustering quality
+       relative to a reference structure, capturing whether guidance pushes
+       predictions closer to the experimentally determined conformation.
+
+    Each metric is examined at baseline (no guidance), across guidance strengths,
+    and as deltas from baseline to quantify the effect of guidance.
     """)
     return
+
+
+@app.cell
+def _(mo):
+    model_group = mo.ui.dropdown(
+        options={"Main models": "main", "Protenix variants": "protenix", "RF3 variants": "rf3"},
+        value="Main models",
+        label="Model group",
+    )
+    smoothing = mo.ui.slider(
+        start=0.05, stop=1.0, step=0.05,
+        value=0.25,
+        label="KDE smoothing",
+    )
+    auto_save = mo.ui.switch(label="Auto-save figures", value=False)
+    mo.hstack([model_group, smoothing, auto_save], justify="start", gap=1)
+    return auto_save, model_group, smoothing
 
 
 @app.cell
@@ -64,261 +95,19 @@ def _(load_rscc):
 def _(add_simplified_metadata_columns, rscc):
     rscc_all = rscc.groupby(["protein", "model_name", "guidance_weight"]).last().reset_index()
     rscc_all = add_simplified_metadata_columns(rscc_all)
-    rscc_all
     return (rscc_all,)
-
-
-@app.cell
-def _(make_ridge_plot, rscc_all, save_fig):
-    _fig = make_ridge_plot(
-        rscc_all.query("guidance_strength == 'baseline' and model_name not in @MODELS_ALT"),
-        "rscc", combined=True,
-    )
-    save_fig(_fig, "08_rscc_baseline_all_models.png")
-    return
-
-
-@app.cell
-def _(
-    MODELS_PROTENIX_GROUP,
-    MODELS_RF3_GROUP,
-    make_ridge_plot,
-    rscc_all,
-    save_fig,
-):
-    for _group, _tag in [(MODELS_PROTENIX_GROUP, "protenix_alts"), (MODELS_RF3_GROUP, "rf3_alts")]:
-        _fig = make_ridge_plot(
-            rscc_all.query("guidance_strength == 'baseline' and model_name in @_group"),
-            "rscc", combined=True,
-        )
-        save_fig(_fig, f"08_rscc_baseline_all_models_{_tag}.png")
-    return
-
-
-@app.cell
-def _(save_model_legend):
-    save_model_legend()
-    return
-
-
-@app.cell
-def _(make_ridge_plot, rscc_all, save_fig):
-    _g = make_ridge_plot(
-        rscc_all.query("guidance_strength in ('baseline', 'weak') and model_name not in @MODELS_ALT"),
-        "rscc",
-    )
-    save_fig(_g, "09_rscc_baseline_vs_weak_distribution.png")
-    return
-
-
-@app.cell
-def _(
-    MODELS_PROTENIX_GROUP,
-    MODELS_RF3_GROUP,
-    make_ridge_plot,
-    rscc_all,
-    save_fig,
-):
-    for _group, _tag in [(MODELS_PROTENIX_GROUP, "protenix_alts"), (MODELS_RF3_GROUP, "rf3_alts")]:
-        _g = make_ridge_plot(
-            rscc_all.query("guidance_strength in ('baseline', 'weak') and model_name in @_group"),
-            "rscc",
-        )
-        save_fig(_g, f"09_rscc_baseline_vs_weak_distribution_{_tag}.png")
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    what's with all the really low RSCC structures? Let's list some:
-    """)
-    return
-
-
-@app.cell
-def _(pd, rscc_all):
-    _msa = pd.read_csv("initial40results/boltz2_msa_depth.csv")
-    _msa.pdb_id = _msa.pdb_id.str.lower()
-    _w_msa = rscc_all.merge(_msa, left_on="protein", right_on="pdb_id")
-
-    _pstats = pd.read_csv("initial40results/Sampleworks_initial_structures.csv")
-    _pstats.PDB_ID = _pstats.PDB_ID.str.lower()
-    _w_all = _w_msa.merge(_pstats, left_on="pdb_id", right_on="PDB_ID")
-    _w_all.groupby("model_name")[[
-        "rscc", "msa_depth", "Resolution", "Rfree",
-        "Cluster_Size", "Num_Structure_100_identity",
-    ]].corr().reset_index().query("level_1 == 'rscc'")
-    return
-
-
-@app.cell
-def _(make_delta_frame, make_ridge_plot, rscc_all, save_fig):
-    rscc_delta = make_delta_frame(rscc_all, "rscc")
-    _g = make_ridge_plot(
-        rscc_delta.query("delta_rscc < 0.3 and delta_rscc > -0.3 and model_name not in @MODELS_ALT"),
-        "delta_rscc", is_delta=True,
-    )
-    save_fig(_g, "10_delta_rscc_distribution.png")
-    return
-
-
-@app.cell
-def _(
-    MODELS_PROTENIX_GROUP,
-    MODELS_RF3_GROUP,
-    make_delta_frame,
-    make_ridge_plot,
-    rscc_all,
-    save_fig,
-):
-    _delta = make_delta_frame(rscc_all, "rscc")
-    for _group, _tag in [(MODELS_PROTENIX_GROUP, "protenix_alts"), (MODELS_RF3_GROUP, "rf3_alts")]:
-        _g = make_ridge_plot(
-            _delta.query("delta_rscc < 0.3 and delta_rscc > -0.3 and model_name in @_group"),
-            "delta_rscc", is_delta=True,
-        )
-        save_fig(_g, f"10_delta_rscc_distribution_{_tag}.png")
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    Do any zero-guidance models achieve any meaningful RSCC?
-    """)
-    return
-
-
-@app.cell
-def _(rscc):
-    rscc.query("guidance_weight == 0.0").pivot(
-        index=["protein", "selection_name"],
-        columns="model_name",
-        values="rscc",
-    ).describe()
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    As we can see, the scores are mostly 0.8-0.9, which is not bad exactly but we would expect better. Boltz and Protenix RSCC fall apart at strong (0.5) guidance, but RF3 does not. Unfortunately, this is still not very discriminating. However, from the metrics above, we know that RF3 had the worst clash scores. It appears to be favoring RSCC over maintaining proper side-chain geometry. Let's see some examples:
-    """)
-    return
-
-
-@app.cell
-def _(rscc):
-    rscc.query("protein == '5i09'")
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    # LDDT
-    """)
-    return
 
 
 @app.cell
 def _(load_lddt):
     lddt_results = load_lddt("initial40results/lddt_results_w_baseline.csv")
-    lddt_results.head()
     return (lddt_results,)
-
-
-@app.cell
-def _(lddt_results):
-    lddt_results.query("protein == '6b8x'")
-    return
 
 
 @app.cell
 def _(add_simplified_metadata_columns, lddt_results):
     lddt_results_1 = add_simplified_metadata_columns(lddt_results)
     return (lddt_results_1,)
-
-
-@app.cell
-def _(lddt_results_1, make_ridge_plot, save_fig):
-    _fig = make_ridge_plot(
-        lddt_results_1.query("guidance_strength == 'baseline' and selection_name != 'all altloc'"),
-        plot_column_name="avg_silhouette_to_ref",
-        custom_xlabel="Average Silhouette Score to Reference (LDDT Clustering)",
-        smoothing=0.25,
-        combined=True,
-    )
-    save_fig(_fig, "11_lddt_to_ref_baseline_distribution.png")
-    return
-
-
-@app.cell
-def _(lddt_results_1, make_ridge_plot, save_fig):
-    _g = make_ridge_plot(
-        lddt_results_1.query("selection_name != 'all altloc'"),
-        "avg_silhouette_to_ref",
-        smoothing=0.25,
-    )
-    save_fig(_g, "12_lddt_to_ref_all_guidance_distribution.png")
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    Yikes
-    """)
-    return
-
-
-@app.cell
-def _(lddt_results_1):
-    lddt_by_pdb_id = (
-        lddt_results_1.query("guidance_strength == 'weak' and selection_name != 'all altloc'")
-        .pivot(
-            index=["protein", "selection_name"],
-            columns="model_name",
-            values=["avg_silhouette_to_ref", "avg_silhouette"],
-        )
-    )
-    lddt_by_pdb_id
-    return (lddt_by_pdb_id,)
-
-
-@app.cell
-def _(lddt_by_pdb_id):
-    lddt_by_pdb_id.describe()
-    return
-
-
-@app.cell
-def _(lddt_by_pdb_id):
-    lddt_by_pdb_id.avg_silhouette_to_ref.idxmax(axis=1).reset_index(name="model_name").groupby("model_name").size()
-    return
-
-
-@app.cell
-def _(lddt_by_pdb_id):
-    _pdb_id, _sel = lddt_by_pdb_id[("avg_silhouette_to_ref", "boltz2X-RAY")].sort_values().dropna().index[-1]
-    lddt_by_pdb_id.loc[(_pdb_id, _sel)]
-    return
-
-
-@app.cell
-def _(lddt_by_pdb_id):
-    lddt_by_pdb_id.query('protein in ("5sop", "8z76", "7z0e", "5rbr", "7frd")')
-    return
-
-
-@app.cell
-def _(lddt_by_pdb_id):
-    (
-        lddt_by_pdb_id.avg_silhouette_to_ref.max(axis=1)
-        - lddt_by_pdb_id.avg_silhouette_to_ref.min(axis=1)
-    ).sort_values()
-    return
 
 
 @app.cell
@@ -334,15 +123,308 @@ def _(lddt_results_1):
     lddt_merged["delta_silhouette_to_ref"] = (
         lddt_merged.avg_silhouette_to_ref - lddt_merged.avg_silhouette_to_ref_baseline
     )
-    lddt_merged
     return (lddt_merged,)
 
 
-@app.cell
-def _(lddt_merged, make_ridge_plot, save_fig):
-    _g = make_ridge_plot(lddt_merged, "delta_silhouette_to_ref", is_delta=True)
-    save_fig(_g, "13_delta_lddt_to_ref_distribution.png")
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Model Legend
+
+    A standalone color legend mapping each model family to its plot color,
+    used as a reference across all figures.
+
+    **Output:** `figures/model_legend.svg`
+    """)
     return
+
+
+@app.cell
+def _(auto_save, save_model_legend):
+    if auto_save.value:
+        save_model_legend()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Figure 08 — RSCC Baseline Distribution
+
+    Ridge plot of RSCC values at the no-guidance baseline, showing all models
+    overlaid on a single combined axis. This establishes the starting quality
+    of each model before any guidance is applied.
+
+    **Output:** `figures/08_rscc_baseline_all_models[_variant].svg`
+    """)
+    return
+
+
+@app.cell
+def _(
+    MODELS_ALT,
+    MODELS_PROTENIX_GROUP,
+    MODELS_RF3_GROUP,
+    auto_save,
+    make_ridge_plot,
+    model_group,
+    rscc_all,
+    save_fig,
+):
+    _group_val = model_group.value
+    if _group_val == "main":
+        _data = rscc_all.query("guidance_strength == 'baseline' and model_name not in @MODELS_ALT")
+        _suffix = ""
+    elif _group_val == "protenix":
+        _data = rscc_all.query("guidance_strength == 'baseline' and model_name in @MODELS_PROTENIX_GROUP")
+        _suffix = "_protenix_alts"
+    else:
+        _data = rscc_all.query("guidance_strength == 'baseline' and model_name in @MODELS_RF3_GROUP")
+        _suffix = "_rf3_alts"
+    fig_08 = make_ridge_plot(_data, "rscc", combined=True)
+    if auto_save.value:
+        save_fig(fig_08, f"08_rscc_baseline_all_models{_suffix}.png")
+    fig_08
+    return (fig_08,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Figure 09 — RSCC Baseline vs Weak Guidance
+
+    Ridge plot comparing RSCC distributions at baseline and weak guidance for
+    each model. This reveals how much (if any) density-fit improvement
+    comes from low-strength guidance.
+
+    **Output:** `figures/09_rscc_baseline_vs_weak_distribution[_variant].svg`
+    """)
+    return
+
+
+@app.cell
+def _(
+    MODELS_ALT,
+    MODELS_PROTENIX_GROUP,
+    MODELS_RF3_GROUP,
+    auto_save,
+    make_ridge_plot,
+    model_group,
+    rscc_all,
+    save_fig,
+):
+    _group_val = model_group.value
+    if _group_val == "main":
+        _data = rscc_all.query("guidance_strength in ('baseline', 'weak') and model_name not in @MODELS_ALT")
+        _suffix = ""
+    elif _group_val == "protenix":
+        _data = rscc_all.query("guidance_strength in ('baseline', 'weak') and model_name in @MODELS_PROTENIX_GROUP")
+        _suffix = "_protenix_alts"
+    else:
+        _data = rscc_all.query("guidance_strength in ('baseline', 'weak') and model_name in @MODELS_RF3_GROUP")
+        _suffix = "_rf3_alts"
+    fig_09 = make_ridge_plot(_data, "rscc")
+    if auto_save.value:
+        save_fig(fig_09, f"09_rscc_baseline_vs_weak_distribution{_suffix}.png")
+    fig_09
+    return (fig_09,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Figure 10 — Delta RSCC Distribution
+
+    Ridge plot of the change in RSCC from baseline across all guidance strengths.
+    Positive delta means guidance improved density fit. Values are clipped to
+    ±0.3 for readability.
+
+    **Output:** `figures/10_delta_rscc_distribution[_variant].svg`
+    """)
+    return
+
+
+@app.cell
+def _(
+    MODELS_ALT,
+    MODELS_PROTENIX_GROUP,
+    MODELS_RF3_GROUP,
+    auto_save,
+    make_delta_frame,
+    make_ridge_plot,
+    model_group,
+    rscc_all,
+    save_fig,
+):
+    rscc_delta = make_delta_frame(rscc_all, "rscc")
+    _group_val = model_group.value
+    if _group_val == "main":
+        _data = rscc_delta.query("delta_rscc < 0.3 and delta_rscc > -0.3 and model_name not in @MODELS_ALT")
+        _suffix = ""
+    elif _group_val == "protenix":
+        _data = rscc_delta.query("delta_rscc < 0.3 and delta_rscc > -0.3 and model_name in @MODELS_PROTENIX_GROUP")
+        _suffix = "_protenix_alts"
+    else:
+        _data = rscc_delta.query("delta_rscc < 0.3 and delta_rscc > -0.3 and model_name in @MODELS_RF3_GROUP")
+        _suffix = "_rf3_alts"
+    fig_10 = make_ridge_plot(_data, "delta_rscc", is_delta=True)
+    if auto_save.value:
+        save_fig(fig_10, f"10_delta_rscc_distribution{_suffix}.png")
+    fig_10
+    return (fig_10,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Figure 10b — Delta RSCC (Weak Guidance, All Models Combined)
+
+    Ridge plot of RSCC change at weak guidance only, with all main models shown
+    on a single combined axis. This focuses on the most practically relevant
+    guidance level.
+
+    **Output:** `figures/10b_delta_rscc_weak_all_models.svg`
+    """)
+    return
+
+
+@app.cell
+def _(auto_save, make_delta_frame, make_ridge_plot, rscc_all, save_fig):
+    _delta = make_delta_frame(rscc_all, "rscc")
+    fig_10b = make_ridge_plot(
+        _delta.query(
+            "guidance_strength == 'weak'"
+            " and delta_rscc < 0.3 and delta_rscc > -0.3"
+            " and model_name not in @MODELS_ALT"
+        ),
+        "delta_rscc",
+        custom_xlabel="∆ Real Space Correlation Coefficient (Guided vs. Baseline)",
+        is_delta=True,
+        combined=True,
+    )
+    if auto_save.value:
+        save_fig(fig_10b, "10b_delta_rscc_weak_all_models.png")
+    fig_10b
+    return (fig_10b,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Figure 10c — Delta RSCC (Weak Guidance, Protenix Group)
+
+    Same as 10b but restricted to Protenix and its size variants, highlighting
+    how model capacity affects density-fit improvement under weak guidance.
+
+    **Output:** `figures/10c_delta_rscc_weak_protenix.svg`
+    """)
+    return
+
+
+@app.cell
+def _(
+    MODELS_PROTENIX_GROUP,
+    auto_save,
+    make_delta_frame,
+    make_ridge_plot,
+    rscc_all,
+    save_fig,
+):
+    _delta = make_delta_frame(rscc_all, "rscc")
+    fig_10c = make_ridge_plot(
+        _delta.query(
+            "guidance_strength == 'weak'"
+            " and delta_rscc < 0.3 and delta_rscc > -0.3"
+            " and model_name in @MODELS_PROTENIX_GROUP"
+        ),
+        "delta_rscc",
+        custom_xlabel="∆ Real Space Correlation Coefficient (Guided vs. Baseline)",
+        is_delta=True,
+        combined=True,
+    )
+    if auto_save.value:
+        save_fig(fig_10c, "10c_delta_rscc_weak_protenix.png")
+    fig_10c
+    return (fig_10c,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Figure 11 — LDDT-to-Reference Baseline Distribution
+
+    Ridge plot of average silhouette scores (LDDT-based clustering relative to
+    the deposited reference structure) at baseline. Higher values indicate the
+    model's predicted ensemble is closer to the experimental structure.
+
+    **Output:** `figures/11_lddt_to_ref_baseline_distribution.svg`
+    """)
+    return
+
+
+@app.cell
+def _(auto_save, lddt_results_1, make_ridge_plot, save_fig, smoothing):
+    fig_11 = make_ridge_plot(
+        lddt_results_1.query("guidance_strength == 'baseline' and selection_name != 'all altloc'"),
+        plot_column_name="avg_silhouette_to_ref",
+        custom_xlabel="Average Silhouette Score to Reference (LDDT Clustering)",
+        smoothing=smoothing.value,
+        combined=True,
+    )
+    if auto_save.value:
+        save_fig(fig_11, "11_lddt_to_ref_baseline_distribution.png")
+    fig_11
+    return (fig_11,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Figure 12 — LDDT-to-Reference Across All Guidance Strengths
+
+    Ridge plot of silhouette-to-reference scores across baseline, weak, and
+    strong guidance for every model. Shows whether increasing guidance
+    drives predictions closer to or further from the reference.
+
+    **Output:** `figures/12_lddt_to_ref_all_guidance_distribution.svg`
+    """)
+    return
+
+
+@app.cell
+def _(auto_save, lddt_results_1, make_ridge_plot, save_fig, smoothing):
+    fig_12 = make_ridge_plot(
+        lddt_results_1.query("selection_name != 'all altloc'"),
+        "avg_silhouette_to_ref",
+        smoothing=smoothing.value,
+    )
+    if auto_save.value:
+        save_fig(fig_12, "12_lddt_to_ref_all_guidance_distribution.png")
+    fig_12
+    return (fig_12,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Figure 13 — Delta LDDT-to-Reference Distribution
+
+    Ridge plot of the change in silhouette-to-reference score from baseline.
+    Positive delta means guidance moved predictions closer to the experimental
+    reference structure.
+
+    **Output:** `figures/13_delta_lddt_to_ref_distribution.svg`
+    """)
+    return
+
+
+@app.cell
+def _(auto_save, lddt_merged, make_ridge_plot, save_fig):
+    fig_13 = make_ridge_plot(lddt_merged, "delta_silhouette_to_ref", is_delta=True)
+    if auto_save.value:
+        save_fig(fig_13, "13_delta_lddt_to_ref_distribution.png")
+    fig_13
+    return (fig_13,)
 
 
 if __name__ == "__main__":
