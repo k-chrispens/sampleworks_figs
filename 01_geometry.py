@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.20.4"
+__generated_with = "0.22.4"
 app = marimo.App()
 
 
@@ -13,10 +13,7 @@ def _():
 
 @app.cell
 def _():
-    import matplotlib.pyplot as plt
-    import numpy as np
     import pandas as pd
-    import seaborn as sns
     from analysis_helpers import (
         load_and_tag_path_csv,
         tag_path_dataframe,
@@ -29,9 +26,6 @@ def _():
     )
 
     return (
-        MODELS_ALT,
-        MODELS_PROTENIX_GROUP,
-        MODELS_RF3_GROUP,
         load_and_tag_path_csv,
         make_delta_frame,
         make_ridge_plot,
@@ -113,17 +107,7 @@ def _(mo):
 
 
 @app.cell
-def _(
-    MODELS_ALT,
-    MODELS_PROTENIX_GROUP,
-    MODELS_RF3_GROUP,
-    auto_save,
-    clashes,
-    make_ridge_plot,
-    model_group,
-    save_fig,
-    smoothing,
-):
+def _(auto_save, clashes, make_ridge_plot, model_group, save_fig, smoothing):
     _filt = clashes.query("guidance_strength != 'strong' and selection_name != 'all altloc'")
     _group_val = model_group.value
     if _group_val == "main":
@@ -139,7 +123,7 @@ def _(
     if auto_save.value:
         save_fig(fig_01, f"01_clashscore_distribution{_suffix}.png")
     fig_01
-    return (fig_01,)
+    return
 
 
 @app.cell(hide_code=True)
@@ -158,9 +142,6 @@ def _(mo):
 
 @app.cell
 def _(
-    MODELS_ALT,
-    MODELS_PROTENIX_GROUP,
-    MODELS_RF3_GROUP,
     auto_save,
     clashes,
     make_delta_frame,
@@ -184,7 +165,7 @@ def _(
     if auto_save.value:
         save_fig(fig_02, f"02_delta_clashscore_distribution{_suffix}.png")
     fig_02
-    return (fig_02,)
+    return
 
 
 @app.cell(hide_code=True)
@@ -203,9 +184,6 @@ def _(mo):
 
 @app.cell
 def _(
-    MODELS_ALT,
-    MODELS_PROTENIX_GROUP,
-    MODELS_RF3_GROUP,
     auto_save,
     bond_stats,
     make_delta_frame,
@@ -232,7 +210,7 @@ def _(
     if auto_save.value:
         save_fig(fig_03, f"03_delta_bond_angle_outlier_fraction_distribution{_suffix}.png")
     fig_03
-    return (fig_03,)
+    return
 
 
 if __name__ == "__main__":

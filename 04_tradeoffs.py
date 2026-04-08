@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.20.4"
+__generated_with = "0.22.4"
 app = marimo.App()
 
 
@@ -16,7 +16,6 @@ def _():
     import matplotlib.pyplot as plt
     import numpy as np
     import pandas as pd
-    import seaborn as sns
     from analysis_helpers import (
         add_simplified_metadata_columns,
         load_and_tag_path_csv,
@@ -25,6 +24,7 @@ def _():
         load_lddt,
         make_delta_frame,
         make_spiral_figure,
+        make_aggregated_spiral_figure,
         save_fig,
         MODEL_DISPLAY,
         MODELS_ALT,
@@ -32,11 +32,10 @@ def _():
 
     return (
         MODEL_DISPLAY,
-        MODELS_ALT,
         add_simplified_metadata_columns,
         load_and_tag_path_csv,
-        load_lddt,
         load_rscc,
+        make_aggregated_spiral_figure,
         make_delta_frame,
         make_spiral_figure,
         np,
@@ -135,12 +134,7 @@ def _(add_simplified_metadata_columns, load_rscc):
 
 
 @app.cell
-def _(
-    bond_stats,
-    clashes_1,
-    make_delta_frame,
-    rscc_all,
-):
+def _(bond_stats, clashes_1, make_delta_frame, rscc_all):
     _group_cols = ["protein", "model_name", "guidance_weight", "guidance_strength"]
 
     clash_stats = clashes_1.groupby(_group_cols, as_index=False).agg(
@@ -175,12 +169,7 @@ def _(
 
 
 @app.cell
-def _(
-    bond_angle_delta,
-    bond_length_delta,
-    clash_delta,
-    rscc_delta_tradeoff,
-):
+def _(bond_angle_delta, bond_length_delta, clash_delta, rscc_delta_tradeoff):
     _merge_on = ["protein", "model_name", "guidance_weight", "guidance_strength"]
 
     tradeoff_df = (
@@ -276,7 +265,77 @@ def _(
         if auto_save.value and not save_all.value:
             save_fig(spiral_fig, f"{_spiral_nums[_cur_model]:02d}_spiral_{_slug}.png")
         spiral_fig
-    return (spiral_fig,)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Figures 20–28 — Aggregated Spiral Trajectories
+
+    These figures aggregate over proteins. Each guidance weight becomes one
+    point at the **median** Δ RSCC and **median** geometry penalty across
+    proteins; error bars show the **interquartile range (IQR)**. The Y axis
+    uses a symmetric log scale so differences at small guidance weights
+    remain visible.
+
+    Median + IQR (rather than mean ± SD) keeps the central tendency robust
+    to a few extreme proteins in the heavy tail of `geometry_penalty`.
+
+    **Output:**
+    - `figures/20_aggregated_spiral_all.svg` — all models overlaid
+    - `figures/21_aggregated_spiral_boltz2_xrd.svg` … `28_aggregated_spiral_rf3_chiral_off.svg` — per model
+    """)
+    return
+
+
+@app.cell
+def _(auto_save, make_aggregated_spiral_figure, save_fig, tradeoff_df):
+    agg_spiral_all_fig = make_aggregated_spiral_figure(tradeoff_df)
+    if auto_save.value:
+        save_fig(agg_spiral_all_fig, "20_aggregated_spiral_all.svg")
+    agg_spiral_all_fig
+    return
+
+
+@app.cell
+def _(
+    MODEL_DISPLAY,
+    auto_save,
+    make_aggregated_spiral_figure,
+    plt,
+    save_all,
+    save_fig,
+    selected_model,
+    tradeoff_df,
+):
+    _agg_spiral_nums = {
+        "boltz2X-RAY": 21, "boltz2MD": 22, "protenix": 23, "rf3": 24,
+        "protenix-mini": 25, "protenix-tiny": 26, "rf3-old": 27, "rf3-chiral-off": 28,
+    }
+    _all_models_agg = [
+        m for m in [
+            "boltz2X-RAY", "boltz2MD", "protenix", "rf3",
+            "protenix-mini", "protenix-tiny", "rf3-old", "rf3-chiral-off",
+        ]
+        if m in tradeoff_df["model_name"].unique()
+    ]
+
+    if save_all.value and auto_save.value:
+        for _model in _all_models_agg:
+            _slug = MODEL_DISPLAY.get(_model, _model).lower().replace("-", "_")
+            _fig = make_aggregated_spiral_figure(tradeoff_df, model_key=_model)
+            save_fig(_fig, f"{_agg_spiral_nums[_model]:02d}_aggregated_spiral_{_slug}.svg")
+            plt.close(_fig)
+
+    _cur_model = selected_model.value
+    if _cur_model in tradeoff_df["model_name"].unique():
+        _slug = MODEL_DISPLAY.get(_cur_model, _cur_model).lower().replace("-", "_")
+        agg_spiral_fig = make_aggregated_spiral_figure(tradeoff_df, model_key=_cur_model)
+        if auto_save.value and not save_all.value:
+            save_fig(agg_spiral_fig, f"{_agg_spiral_nums[_cur_model]:02d}_aggregated_spiral_{_slug}.svg")
+        agg_spiral_fig
+    return
 
 
 if __name__ == "__main__":

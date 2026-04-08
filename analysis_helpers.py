@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+import warnings
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -466,6 +467,272 @@ def save_model_legend(filename: str = "model_legend", fmt: str = "svg") -> Path:
     fig.savefig(output_path, bbox_inches="tight")
     plt.close(fig)
     return output_path
+
+
+def make_scatter_comparison(
+    df: pd.DataFrame,
+    model_name: str,
+    x_col: str,
+    y_col: str,
+    x_label: str,
+    y_label: str,
+    title: str | None = None,
+    delta_col: str | None = None,
+    draw_diagonal: bool = False,
+    highlight_top_n: int = 3,
+    highlight_decreased: bool = True,
+    label_all: bool = False,
+    draw_regression: bool = False,
+    show_correlation: bool = False,
+    equal_aspect: bool = True,
+) -> plt.Figure:
+    """Generic scatter plot comparing two metrics for a single model.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain *x_col*, *y_col*, and ``protein``.  If *delta_col* is
+        given, it must also be present for highlighting.
+    model_name : str
+        Key into ``MODEL_PALETTE`` / ``MODEL_DISPLAY``.
+    x_col, y_col : str
+        Column names for the x- and y-axes.
+    x_label, y_label : str
+        Human-readable axis labels.
+    title : str or None
+        Plot title.  Defaults to ``"{display_name}: {y_label} vs {x_label}"``.
+    delta_col : str or None
+        Column used to identify improved / decreased points.  If *None*,
+        no delta-based highlighting is applied.
+    draw_diagonal : bool
+        Draw a dashed y = x reference line (useful when both axes share a
+        scale, e.g. baseline vs guided RSCC).
+    highlight_top_n : int
+        Number of most-improved points to highlight (requires *delta_col*).
+    highlight_decreased : bool
+        Whether to highlight points where *delta_col* < 0.
+    label_all : bool
+        Annotate every point with its uppercased protein name.
+    draw_regression : bool
+        Overlay an OLS best-fit line.
+    show_correlation : bool
+        Display Pearson *r* in a text box (requires >= 5 data points).
+    equal_aspect : bool
+        If *True*, enforce equal axis scaling.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    color = MODEL_PALETTE.get(model_name, "#888888")
+    display_name = MODEL_DISPLAY.get(model_name, model_name)
+    if title is None:
+        title = f"{display_name}: {y_label} vs {x_label}"
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    x, y = df[x_col], df[y_col]
+
+    # Reference diagonal
+    if draw_diagonal:
+        lo = min(x.min(), y.min()) - 0.02
+        hi = max(x.max(), y.max()) + 0.02
+        ax.plot([lo, hi], [lo, hi], ls="--", color="#AAAAAA", lw=1, zorder=1)
+
+    # All points
+    ax.scatter(x, y, c=color, s=40, alpha=0.7, edgecolors="white", linewidths=0.5, zorder=2)
+
+    # Delta-based highlighting
+    if delta_col is not None and delta_col in df.columns:
+        if highlight_decreased:
+            dec = df[df[delta_col] < 0]
+            if not dec.empty:
+                ax.scatter(
+                    dec[x_col], dec[y_col],
+                    facecolors=color, s=60, edgecolors="#D32F2F", linewidths=1.5, zorder=3,
+                )
+                for _, r in dec.iterrows():
+                    ax.annotate(
+                        r["protein"].upper(), (r[x_col], r[y_col]),
+                        textcoords="offset points", xytext=(6, -8),
+                        fontsize=7, color="#D32F2F", fontweight="bold",
+                    )
+
+        if highlight_top_n > 0:
+            imp = df.nlargest(highlight_top_n, delta_col)
+            imp = imp[imp[delta_col] > 0]
+            if not imp.empty:
+                ax.scatter(
+                    imp[x_col], imp[y_col],
+                    facecolors=color, s=60, edgecolors="#2E7D32", linewidths=1.5, zorder=3,
+                )
+                for _, r in imp.iterrows():
+                    ax.annotate(
+                        r["protein"].upper(), (r[x_col], r[y_col]),
+                        textcoords="offset points", xytext=(6, 6),
+                        fontsize=7, color="#2E7D32", fontweight="bold",
+                    )
+
+    # Label every point (when no delta highlighting)
+    if label_all and delta_col is None:
+        for _, r in df.iterrows():
+            ax.annotate(
+                r["protein"].upper(), (r[x_col], r[y_col]),
+                textcoords="offset points", xytext=(6, 4),
+                fontsize=6, color="#333333",
+            )
+
+    # Drop NaNs for regression / correlation (polyfit SVD fails on NaN)
+    _finite = np.isfinite(x) & np.isfinite(y)
+    _n_dropped = int((~_finite).sum())
+    if _n_dropped > 0:
+        warnings.warn(
+            f"make_scatter_comparison({display_name}): dropping {_n_dropped} of "
+            f"{len(df)} rows with NaN in '{x_col}' or '{y_col}' before regression.",
+            stacklevel=2,
+        )
+    _xf, _yf = x[_finite], y[_finite]
+
+    # Regression line
+    if draw_regression and len(_xf) >= 2 and _xf.min() != _xf.max():
+        m, b = np.polyfit(_xf, _yf, 1)
+        x_range = np.linspace(_xf.min(), _xf.max(), 100)
+        ax.plot(x_range, m * x_range + b, ls="-", color=color, lw=1.5, alpha=0.6, zorder=1)
+
+    # Pearson correlation
+    if show_correlation and len(_xf) >= 5:
+        r_val = np.corrcoef(_xf, _yf)[0, 1]
+        ax.text(
+            0.97, 0.03, f"r = {r_val:.3f}",
+            transform=ax.transAxes, fontsize=9, ha="right", va="bottom",
+            bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#CCCCCC", alpha=0.8),
+        )
+
+    ax.set_xlabel(x_label, fontsize=11)
+    ax.set_ylabel(y_label, fontsize=11)
+    ax.set_title(title, fontsize=12)
+    if equal_aspect:
+        ax.set_aspect("equal", adjustable="datalim")
+        pad = 0.01
+        ax.set_xlim(lo + pad, hi)
+        ax.set_ylim(lo + pad, hi)
+    fig.tight_layout()
+    return fig
+
+
+def make_rscc_scatter(
+    df: pd.DataFrame,
+    model_name: str,
+    optimal_gw: float,
+) -> plt.Figure:
+    """Create a scatter plot of baseline vs optimally-guided RSCC for one model."""
+    return make_scatter_comparison(
+        df,
+        model_name,
+        x_col="rscc_baseline",
+        y_col="rscc_optimal",
+        x_label="Baseline RSCC",
+        y_label=f"RSCC at gw={optimal_gw}",
+        title=f"{MODEL_DISPLAY.get(model_name, model_name)}: RSCC Improvement Over Baseline",
+        delta_col="delta_rscc",
+        draw_diagonal=True,
+        highlight_top_n=3,
+        highlight_decreased=True,
+    )
+
+
+def make_aggregated_scatter(
+    agg_df: pd.DataFrame,
+    *,
+    x_col: str,
+    y_col: str,
+    x_q1_col: str,
+    x_q3_col: str,
+    y_q1_col: str,
+    y_q3_col: str,
+    x_label: str,
+    y_label: str,
+    title: str,
+    label_col: str = "protein",
+    draw_diagonal: bool = False,
+    equal_aspect: bool = False,
+    point_color: str = "#4D4D4D",
+    label_points: bool = False,
+    show_correlation: bool = False,
+) -> plt.Figure:
+    """Scatter plot with asymmetric IQR error bars for cross-model aggregations.
+
+    Each row of *agg_df* becomes one point; ``x_col``/``y_col`` are the medians
+    and ``*_q1``/``*_q3`` provide the IQR whiskers. Error-bar styling mirrors
+    :func:`make_aggregated_spiral_figure` so the two figure families stay
+    visually consistent.
+    """
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    x_med = agg_df[x_col].to_numpy()
+    y_med = agg_df[y_col].to_numpy()
+    x_q1 = agg_df[x_q1_col].to_numpy()
+    x_q3 = agg_df[x_q3_col].to_numpy()
+    y_q1 = agg_df[y_q1_col].to_numpy()
+    y_q3 = agg_df[y_q3_col].to_numpy()
+
+    xerr = np.vstack([x_med - x_q1, x_q3 - x_med])
+    yerr = np.vstack([y_med - y_q1, y_q3 - y_med])
+
+    if draw_diagonal:
+        lo = float(min(np.nanmin(x_q1), np.nanmin(y_q1))) - 0.02
+        hi = float(max(np.nanmax(x_q3), np.nanmax(y_q3))) + 0.02
+        ax.plot([lo, hi], [lo, hi], ls="--", color="#AAAAAA", lw=1, zorder=1)
+
+    ax.errorbar(
+        x_med, y_med,
+        xerr=xerr, yerr=yerr,
+        fmt="none",
+        ecolor=point_color,
+        alpha=0.35,
+        capsize=3,
+        lw=1.0,
+        zorder=2,
+    )
+    ax.scatter(
+        x_med, y_med,
+        c=point_color, s=55,
+        edgecolors="white", linewidths=0.5, zorder=4,
+    )
+
+    if label_points and label_col in agg_df.columns:
+        for _, r in agg_df.iterrows():
+            ax.annotate(
+                str(r[label_col]).upper(),
+                (r[x_col], r[y_col]),
+                textcoords="offset points", xytext=(6, 4),
+                fontsize=6, color="#333333",
+            )
+
+    if show_correlation:
+        _finite = np.isfinite(x_med) & np.isfinite(y_med)
+        if int(_finite.sum()) >= 5:
+            r_val = float(np.corrcoef(x_med[_finite], y_med[_finite])[0, 1])
+            ax.text(
+                0.97, 0.03, f"r = {r_val:.3f}",
+                transform=ax.transAxes, fontsize=9, ha="right", va="bottom",
+                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#CCCCCC", alpha=0.8),
+            )
+
+    ax.set_xlabel(x_label, fontsize=11)
+    ax.set_ylabel(y_label, fontsize=11)
+    ax.set_title(title, fontsize=12)
+
+    if equal_aspect and draw_diagonal:
+        ax.set_aspect("equal", adjustable="datalim")
+        pad = 0.01
+        ax.set_xlim(lo + pad, hi)
+        ax.set_ylim(lo + pad, hi)
+    elif equal_aspect:
+        ax.set_aspect("equal", adjustable="datalim")
+
+    fig.tight_layout()
+    return fig
 
 
 def make_ridge_plot(
@@ -1503,6 +1770,7 @@ def make_spiral_figure(
         ax.set_xlim(x_lo - x_pad, x_hi + x_pad)
         ax.set_ylim(y_lo - y_pad, y_hi + y_pad)
 
+    ax.set_yscale("symlog", linthresh=1.0)
     ax.set_xlabel("Δ RSCC vs. baseline", fontsize=11)
     ax.set_ylabel("∆ Geometry penalty vs. baseline", fontsize=11)
 
@@ -1515,6 +1783,209 @@ def make_spiral_figure(
     sm.set_array([])
     cbar = fig.colorbar(sm, ax=ax, shrink=0.75, pad=0.02)
     cbar.set_label("Guidance weight", fontsize=10)
+
+    fig.tight_layout()
+    return fig
+
+
+def make_aggregated_spiral_figure(
+    tradeoff_df: pd.DataFrame,
+    *,
+    model_key: str | None = None,
+    model_order: list[str] | None = None,
+    xlim: tuple[float, float] | None = None,
+    ylim: tuple[float, float] | None = None,
+    linthresh: float = 1.0,
+    min_n: int = 3,
+):
+    """Aggregated guidance-weight spiral trajectory figure.
+
+    For each (model, guidance_weight) group, collapses across proteins to a
+    single (median Δ RSCC, median geometry penalty) point with IQR error bars
+    in both X and Y. The Y axis uses symmetric log scaling to keep small
+    guidance weights legible.
+
+    Parameters
+    ----------
+    tradeoff_df : pd.DataFrame
+        The full tradeoff dataframe (all models). Must include columns
+        ``protein``, ``model_name``, ``guidance_weight``, ``delta_rscc``,
+        and ``geometry_penalty``.
+    model_key : str or None
+        If provided, render a single-model aggregated figure. If ``None``,
+        render a multi-model overlay.
+    model_order : list[str] or None
+        Models to include in multi-model mode (default: all present).
+    xlim, ylim : tuple[float, float] or None
+        Fixed axis limits. When ``None`` they are derived from the
+        aggregated whiskers with padding.
+    linthresh : float
+        Linear-region threshold for the symlog Y axis.
+    min_n : int
+        Minimum number of proteins required in a group; smaller groups are
+        dropped (IQR is unreliable with very few points).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    agg = (
+        tradeoff_df
+        .groupby(["model_name", "guidance_weight"], as_index=False)
+        .agg(
+            x_med=("delta_rscc", "median"),
+            x_q1=("delta_rscc", lambda s: s.quantile(0.25)),
+            x_q3=("delta_rscc", lambda s: s.quantile(0.75)),
+            y_med=("geometry_penalty", "median"),
+            y_q1=("geometry_penalty", lambda s: s.quantile(0.25)),
+            y_q3=("geometry_penalty", lambda s: s.quantile(0.75)),
+            n=("protein", "count"),
+        )
+    )
+    agg = agg[agg["n"] >= min_n].sort_values(["model_name", "guidance_weight"])
+
+    single_mode = model_key is not None
+    if model_key is not None:
+        models_to_draw: list[str] = [model_key]
+    else:
+        if model_order is None:
+            model_order = [
+                "boltz2X-RAY", "boltz2MD", "protenix", "rf3",
+                "protenix-mini", "protenix-tiny", "rf3-old", "rf3-chiral-off",
+            ]
+        models_to_draw = [m for m in model_order if m in agg["model_name"].unique()]
+
+    fig, ax = plt.subplots(figsize=(8, 6) if not single_mode else (7, 6))
+
+    # For single-model mode, use a flare colormap on guidance weight to
+    # match the visual language of make_spiral_figure.
+    flare_cmap = sns.color_palette("flare", as_cmap=True)
+    if single_mode:
+        gw_all = sorted(agg.loc[agg["model_name"] == model_key, "guidance_weight"].unique())
+        gw_norm = Normalize(vmin=0.0, vmax=max(gw_all) if gw_all else 1.0)
+
+    for m in models_to_draw:
+        sub = agg[agg["model_name"] == m]
+        if sub.empty:
+            continue
+
+        gws = sub["guidance_weight"].to_numpy()
+        x_med = sub["x_med"].to_numpy()
+        y_med = sub["y_med"].to_numpy()
+        x_q1 = sub["x_q1"].to_numpy()
+        x_q3 = sub["x_q3"].to_numpy()
+        y_q1 = sub["y_q1"].to_numpy()
+        y_q3 = sub["y_q3"].to_numpy()
+
+        # Asymmetric error arrays (lower, upper) for errorbar
+        xerr = np.vstack([x_med - x_q1, x_q3 - x_med])
+        yerr = np.vstack([y_med - y_q1, y_q3 - y_med])
+
+        # Trajectory anchored at origin (baseline)
+        xs = np.concatenate([[0.0], x_med])
+        ys = np.concatenate([[0.0], y_med])
+
+        line_color = MODEL_PALETTE.get(m, "#4D4D4D")
+
+        ax.plot(
+            xs, ys,
+            color=line_color, lw=1.6, alpha=0.85, zorder=3,
+            label=MODEL_DISPLAY.get(m, m) if not single_mode else None,
+        )
+
+        ax.errorbar(
+            x_med, y_med,
+            xerr=xerr, yerr=yerr,
+            fmt="none",
+            ecolor=line_color,
+            alpha=0.35,
+            capsize=3,
+            lw=1.0,
+            zorder=2,
+        )
+
+        if single_mode:
+            dot_colors = flare_cmap(gw_norm(gws))
+            ax.scatter(
+                x_med, y_med,
+                c=dot_colors, s=70,
+                edgecolors="white", linewidths=0.6, zorder=4,
+            )
+        else:
+            ax.scatter(
+                x_med, y_med,
+                c=[line_color], s=55,
+                edgecolors="white", linewidths=0.5, zorder=4,
+            )
+
+        # Arrowhead on the final segment
+        if len(xs) >= 2:
+            ax.annotate(
+                "",
+                xy=(xs[-1], ys[-1]),
+                xytext=(xs[-2], ys[-2]),
+                arrowprops=dict(
+                    arrowstyle="-|>",
+                    color=line_color,
+                    lw=0.0,
+                    mutation_scale=10,
+                ),
+                zorder=5,
+            )
+
+    ax.axvline(0, color="#555555", ls="--", lw=0.8, alpha=0.5)
+    ax.axhline(0, color="#555555", ls="--", lw=0.8, alpha=0.5)
+
+    ax.set_yscale("symlog", linthresh=linthresh)
+
+    if xlim is not None and ylim is not None:
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+    else:
+        all_x = np.concatenate([
+            agg["x_q1"].to_numpy(),
+            agg["x_q3"].to_numpy(),
+            np.array([0.0]),
+        ])
+        all_y = np.concatenate([
+            agg["y_q1"].to_numpy(),
+            agg["y_q3"].to_numpy(),
+            np.array([0.0]),
+        ])
+        x_lo, x_hi = float(all_x.min()), float(all_x.max())
+        y_lo, y_hi = float(all_y.min()), float(all_y.max())
+        x_pad = max(0.08 * (x_hi - x_lo), 0.02)
+        y_pad = max(0.08 * (y_hi - y_lo), 0.50)
+        ax.set_xlim(x_lo - x_pad, x_hi + x_pad)
+        ax.set_ylim(y_lo - y_pad, y_hi + y_pad)
+
+    ax.set_xlabel("Δ RSCC vs. baseline (median)", fontsize=11)
+    ax.set_ylabel("∆ Geometry penalty vs. baseline (median)", fontsize=11)
+
+    if model_key is not None:
+        display = MODEL_DISPLAY.get(model_key, model_key)
+        ax.set_title(
+            f"{display}: aggregated guidance tradeoff",
+            fontsize=13, fontweight="bold",
+        )
+        sm = ScalarMappable(cmap=flare_cmap, norm=gw_norm)
+        sm.set_array([])
+        cbar = fig.colorbar(sm, ax=ax, shrink=0.75, pad=0.02)
+        cbar.set_label("Guidance weight", fontsize=10)
+    else:
+        ax.set_title(
+            "Aggregated guidance strength tradeoff",
+            fontsize=13, fontweight="bold",
+        )
+        ax.legend(
+            loc="best",
+            frameon=True,
+            framealpha=0.9,
+            edgecolor="none",
+            fontsize=9,
+            title="Model",
+            title_fontsize=10,
+        )
 
     fig.tight_layout()
     return fig
