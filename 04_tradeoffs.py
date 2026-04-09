@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.22.4"
+__generated_with = "0.23.0"
 app = marimo.App()
 
 
@@ -291,7 +291,13 @@ def _(mo):
 
 @app.cell
 def _(auto_save, make_aggregated_spiral_figure, save_fig, tradeoff_df):
-    agg_spiral_all_fig = make_aggregated_spiral_figure(tradeoff_df)
+    agg_spiral_all_fig = make_aggregated_spiral_figure(
+        tradeoff_df,
+        model_order=[
+            "boltz2X-RAY", "boltz2MD", "protenix", "rf3",
+            "protenix-mini", "protenix-tiny", "rf3-chiral-off",
+        ],
+    )
     if auto_save.value:
         save_fig(agg_spiral_all_fig, "20_aggregated_spiral_all.svg")
     agg_spiral_all_fig

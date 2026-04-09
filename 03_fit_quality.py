@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.22.4"
+__generated_with = "0.23.0"
 app = marimo.App()
 
 
@@ -34,6 +34,8 @@ def _():
     )
 
     return (
+        MODELS_PROTENIX_GROUP,
+        MODELS_RF3_GROUP,
         MODEL_DISPLAY,
         add_simplified_metadata_columns,
         load_lddt,
@@ -745,8 +747,9 @@ def _(mo):
 
 @app.cell
 def _(auto_save, lddt_results_1, make_ridge_plot, save_fig, smoothing):
+    _base = lddt_results_1.query("guidance_strength == 'baseline' and selection_name != 'all altloc'")
     fig_09 = make_ridge_plot(
-        lddt_results_1.query("guidance_strength == 'baseline' and selection_name != 'all altloc'"),
+        _base.query("model_name not in @MODELS_ALT"),
         plot_column_name="avg_silhouette_to_ref",
         custom_xlabel="Average Silhouette Score to Reference (LDDT Clustering)",
         smoothing=smoothing.value,
@@ -755,6 +758,30 @@ def _(auto_save, lddt_results_1, make_ridge_plot, save_fig, smoothing):
     if auto_save.value:
         save_fig(fig_09, "09_lddt_to_ref_baseline_distribution.png")
     fig_09
+    return
+
+
+@app.cell
+def _(
+    MODELS_PROTENIX_GROUP,
+    MODELS_RF3_GROUP,
+    auto_save,
+    lddt_results_1,
+    make_ridge_plot,
+    save_fig,
+    smoothing,
+):
+    _base = lddt_results_1.query("guidance_strength == 'baseline' and selection_name != 'all altloc'")
+    for _group, _tag in [(MODELS_PROTENIX_GROUP, "protenix_alts"), (MODELS_RF3_GROUP, "rf3_alts")]:
+        _fig = make_ridge_plot(
+            _base.query("model_name in @_group"),
+            plot_column_name="avg_silhouette_to_ref",
+            custom_xlabel="Average Silhouette Score to Reference (LDDT Clustering)",
+            smoothing=smoothing.value,
+            combined=True,
+        )
+        if auto_save.value:
+            save_fig(_fig, f"09_lddt_to_ref_baseline_distribution_{_tag}.png")
     return
 
 
@@ -775,13 +802,34 @@ def _(mo):
 @app.cell
 def _(auto_save, lddt_results_1, make_ridge_plot, save_fig, smoothing):
     fig_10 = make_ridge_plot(
-        lddt_results_1.query("selection_name != 'all altloc'"),
+        lddt_results_1.query("selection_name != 'all altloc' and model_name not in @MODELS_ALT"),
         "avg_silhouette_to_ref",
         smoothing=smoothing.value,
     )
     if auto_save.value:
         save_fig(fig_10, "10_lddt_to_ref_all_guidance_distribution.png")
     fig_10
+    return
+
+
+@app.cell
+def _(
+    MODELS_PROTENIX_GROUP,
+    MODELS_RF3_GROUP,
+    auto_save,
+    lddt_results_1,
+    make_ridge_plot,
+    save_fig,
+    smoothing,
+):
+    for _group, _tag in [(MODELS_PROTENIX_GROUP, "protenix_alts"), (MODELS_RF3_GROUP, "rf3_alts")]:
+        _fig = make_ridge_plot(
+            lddt_results_1.query("selection_name != 'all altloc' and model_name in @_group"),
+            "avg_silhouette_to_ref",
+            smoothing=smoothing.value,
+        )
+        if auto_save.value:
+            save_fig(_fig, f"10_lddt_to_ref_all_guidance_distribution_{_tag}.png")
     return
 
 
@@ -801,10 +849,32 @@ def _(mo):
 
 @app.cell
 def _(auto_save, lddt_merged, make_ridge_plot, save_fig):
-    fig_11 = make_ridge_plot(lddt_merged, "delta_silhouette_to_ref", is_delta=True)
+    fig_11 = make_ridge_plot(
+        lddt_merged.query("model_name not in @MODELS_ALT"),
+        "delta_silhouette_to_ref", is_delta=True,
+    )
     if auto_save.value:
         save_fig(fig_11, "11_delta_lddt_to_ref_distribution.png")
     fig_11
+    return
+
+
+@app.cell
+def _(
+    MODELS_PROTENIX_GROUP,
+    MODELS_RF3_GROUP,
+    auto_save,
+    lddt_merged,
+    make_ridge_plot,
+    save_fig,
+):
+    for _group, _tag in [(MODELS_PROTENIX_GROUP, "protenix_alts"), (MODELS_RF3_GROUP, "rf3_alts")]:
+        _fig = make_ridge_plot(
+            lddt_merged.query("model_name in @_group"),
+            "delta_silhouette_to_ref", is_delta=True,
+        )
+        if auto_save.value:
+            save_fig(_fig, f"11_delta_lddt_to_ref_distribution_{_tag}.png")
     return
 
 
