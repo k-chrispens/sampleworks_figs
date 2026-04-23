@@ -1,10 +1,19 @@
-"""One-time script to integrate new RSCC and LDDT CSV files into initial40results.
+"""One-time script to rebuild initial40results/rscc_results.csv from new CSVs.
 
-New files:
-- rscc_results_rf3_fixed_chiral_off.csv → replaces rf3-chiral-off rows in rscc_results.csv
-- lddt_results_protenix_mini.csv → appends to lddt_results_w_baseline.csv
-- lddt_results_protenix_tiny.csv → appends to lddt_results_w_baseline.csv
-- lddt_results_rf3_fixed_chiral_off.csv → appends to lddt_results_w_baseline.csv
+RSCC rebuild (`merge_rscc`): full replacement of
+``initial40results/rscc_results.csv`` from three source files in the project
+root. The old RSCC data has been backed up as ``*.csv.bak`` and is abandoned.
+
+Sources:
+- rscc_results_other_models.csv               → boltz2 (MD+X-RAY), protenix
+- rscc_results_rf3_fixed.csv                  → rf3 (fixed run; model kept as "rf3")
+- rscc_results_rf3_fixed_chiral_off.csv       → rf3 (chiral-off run; model
+                                                 rewritten to "rf3-chiral-off")
+
+LDDT appends (`merge_lddt`): previously used to splice protenix-mini/tiny and
+rf3-chiral-off rows into ``lddt_results_w_baseline.csv``. That merge has
+already been run, so ``merge_lddt`` is not invoked by default — kept here for
+reference / re-run if the target file is ever regenerated.
 
 Usage:
     uv run python merge_new_rscc_lddt.py
@@ -17,53 +26,46 @@ from pathlib import Path
 
 INITIAL_DIR = Path("initial40results")
 
-# (source_file, canonical_model_name)
+# (source_file, canonical_model_name | None)
+# None means "leave the model column as-is".
+RSCC_SOURCES: list[tuple[str, str | None]] = [
+    ("rscc_results_other_models.csv", None),
+    ("rscc_results_rf3_fixed.csv", None),
+    ("rscc_results_rf3_fixed_chiral_off.csv", "rf3-chiral-off"),
+]
+
 LDDT_FILES = [
     ("lddt_results_protenix_mini.csv", "protenix-mini"),
     ("lddt_results_protenix_tiny.csv", "protenix-tiny"),
     ("lddt_results_rf3_fixed_chiral_off.csv", "rf3-chiral-off"),
 ]
 
-RSCC_FILE = ("rscc_results_rf3_fixed_chiral_off.csv", "rf3-chiral-off")
-
 
 def merge_rscc() -> None:
-    """Replace existing rf3-chiral-off RSCC rows with the new superset file."""
-    src_file, canonical = RSCC_FILE
+    """Rebuild initial40results/rscc_results.csv from the three new CSVs."""
     target = INITIAL_DIR / "rscc_results.csv"
-    print(f"[RSCC] Merging {src_file} → {target}")
+    print(f"[RSCC] Rebuilding {target} from {len(RSCC_SOURCES)} source files")
 
-    # Read existing, remove old rf3-chiral-off rows
-    existing = pl.read_csv(target)
-    before = len(existing)
-    existing = existing.filter(pl.col("model") != "rf3-chiral-off")
-    removed = before - len(existing)
-    print(f"  Removed {removed} existing rf3-chiral-off rows")
+    frames: list[pl.DataFrame] = []
+    for src_file, canonical in RSCC_SOURCES:
+        df = pl.read_csv(src_file)
+        if canonical is not None:
+            df = df.with_columns(pl.lit(canonical).alias("model"))
+        if "trial_dir" in df.columns:
+            df = df.rename({"trial_dir": "exp_dir"})
+        print(f"  {src_file}: {len(df)} rows (model rewrite: {canonical or '—'})")
+        frames.append(df)
 
-    # Read new file, rewrite model, rename columns
-    new = pl.read_csv(src_file)
-    new = new.with_columns(pl.lit(canonical).alias("model"))
-    if "trial_dir" in new.columns:
-        new = new.rename({"trial_dir": "exp_dir"})
-
-    # Align columns to existing schema
-    for col in existing.columns:
-        if col not in new.columns:
-            new = new.with_columns(pl.lit(None).alias(col))
-    new = new.select(existing.columns)
-
-    # Match dtypes
-    for col in existing.columns:
-        if existing[col].dtype != new[col].dtype:
-            new = new.with_columns(pl.col(col).cast(existing[col].dtype))
-
-    result = pl.concat([existing, new])
-    print(f"  {before} - {removed} + {len(new)} = {len(result)} rows")
+    result = pl.concat(frames, how="vertical_relaxed")
+    print(f"  Total: {len(result)} rows → {target}")
     result.write_csv(target)
 
 
 def merge_lddt() -> None:
-    """Append new LDDT data for protenix-mini, protenix-tiny, rf3-chiral-off."""
+    """Append new LDDT data for protenix-mini, protenix-tiny, rf3-chiral-off.
+
+    Not called by default — already run. Retained for reference.
+    """
     target = INITIAL_DIR / "lddt_results_w_baseline.csv"
     existing = pl.read_csv(target)
     print(f"\n[LDDT] Target: {target} ({len(existing)} existing rows)")
@@ -73,10 +75,8 @@ def merge_lddt() -> None:
         print(f"  Processing {src_file} → {canonical}")
         new = pl.read_csv(src_file)
 
-        # Rewrite model column to canonical name
         new = new.with_columns(pl.lit(canonical).alias("model"))
 
-        # Rename columns to match existing schema
         renames = {}
         if "altloc_occupancies" in new.columns:
             renames["altloc_occupancies"] = "occ_a"
@@ -85,7 +85,6 @@ def merge_lddt() -> None:
         if renames:
             new = new.rename(renames)
 
-        # Align columns
         for col in existing.columns:
             if col not in new.columns:
                 new = new.with_columns(pl.lit(None).alias(col))
@@ -94,13 +93,10 @@ def merge_lddt() -> None:
         print(f"    {len(new)} rows")
         frames.append(new)
 
-    # Unify dtypes across all frames before concat: for each column, if any
-    # frame has a different dtype, cast all to the most permissive type.
     target_dtypes = {}
     for col in existing.columns:
         dtypes = {f[col].dtype for f in frames if col in f.columns}
         if len(dtypes) > 1:
-            # If any frame has String, cast all to String; otherwise use Float64
             target_dtypes[col] = pl.String if pl.String in dtypes else pl.Float64
     for i, f in enumerate(frames):
         casts = {col: f.schema[col] != dt for col, dt in target_dtypes.items() if col in f.columns}
@@ -117,7 +113,6 @@ def merge_lddt() -> None:
 
 def main() -> None:
     merge_rscc()
-    merge_lddt()
     print("\nDone!")
 
 

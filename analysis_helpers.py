@@ -169,8 +169,6 @@ MODEL_NAME_ALIAS = {
     "boltz2_MD": "boltz2MD",
     "boltz2xray": "boltz2X-RAY",
     "boltz2md": "boltz2MD",
-    "rf3": "rf3-old",
-    "rf3-fixed": "rf3",
 }
 
 NICE_XLABELS = {
@@ -417,7 +415,7 @@ def load_rscc(csv_path: str) -> pd.DataFrame:
     pd.DataFrame
         RSCC DataFrame with ``model_name``, ``guidance_strength``, etc.
     """
-    df = pd.read_csv(csv_path)
+    df = pd.read_csv(csv_path, dtype={"error": str}).fillna({"error": ""})
     _occ = OCC_FILTER_ALTLOC
     df = df.query("altloc_occupancies == @_occ").copy()
     df["model_name"] = df.apply(
