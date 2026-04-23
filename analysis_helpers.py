@@ -1,7 +1,7 @@
 """Shared helpers for the initial-40 analysis notebooks.
 
 Data loading, tagging, plotting utilities, and constants used across
-01_geometry, 02_dihedrals, 03_fit_quality, and 04_tradeoffs notebooks.
+01_geometry, 02_fit_quality, and 03_tradeoffs notebooks.
 """
 
 from __future__ import annotations
@@ -16,11 +16,16 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import seaborn as sns
+from adjustText import adjust_text
 from matplotlib.cm import ScalarMappable
 from matplotlib.collections import LineCollection
 from matplotlib.colors import Normalize
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
+
+# ── Publication styling ───────────────────────────────────────────────────────
+sns.set_context("paper", font_scale=1.4)
+sns.set_style("ticks")
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -39,6 +44,24 @@ COLOR_GOOD_LIGHTBLUE = "#8EDCE6"
 MODELS_ALT = {"protenix-mini", "protenix-tiny", "rf3-old", "rf3-chiral-off"}
 MODELS_PROTENIX_GROUP = ["protenix", "protenix-mini", "protenix-tiny"]
 MODELS_RF3_GROUP = ["rf3", "rf3-old", "rf3-chiral-off"]
+
+
+def filter_by_model_group(
+    df: pd.DataFrame,
+    group: str,
+    extra_query: str | None = None,
+) -> tuple[pd.DataFrame, str]:
+    """Filter a dataframe by model group and return (filtered_df, filename_suffix)."""
+    if group == "main":
+        result, suffix = df.query("model_name not in @MODELS_ALT"), ""
+    elif group == "protenix":
+        result, suffix = df.query("model_name in @MODELS_PROTENIX_GROUP"), "_protenix_alts"
+    else:
+        result, suffix = df.query("model_name in @MODELS_RF3_GROUP"), "_rf3_alts"
+    if extra_query:
+        result = result.query(extra_query)
+    return result, suffix
+
 
 GUIDANCE_PALETTE = {
     "baseline": "#888888",
@@ -120,6 +143,27 @@ MODEL_DISPLAY = {
     "rf3-chiral-off": "RF3-Chiral-Off",
 }
 
+
+def model_slug(model_name: str) -> str:
+    """Return a filesystem-safe slug for a model name."""
+    display = MODEL_DISPLAY.get(model_name, model_name)
+    return display.lower().replace("-", "_").replace(" ", "_")
+
+
+CLASSIFICATION_PALETTE = {
+    "side_chain_only": "#E7298A",  # magenta (ColorBrewer Dark2)
+    "small_loop":      "#1B9E77",  # teal-green
+    "large_loop":      "#D95F02",  # orange
+    "domain_shift":    "#7570B3",  # purple
+}
+CLASSIFICATION_DISPLAY = {
+    "side_chain_only": "Side-Chain Only",
+    "small_loop":      "Small Loop",
+    "large_loop":      "Large Loop",
+    "domain_shift":    "Domain Shift",
+}
+CLASSIFICATION_ORDER = ["side_chain_only", "small_loop", "large_loop", "domain_shift"]
+
 MODEL_NAME_ALIAS = {
     "boltz2_X-RAY_DIFFRACTION": "boltz2X-RAY",
     "boltz2_MD": "boltz2MD",
@@ -130,14 +174,14 @@ MODEL_NAME_ALIAS = {
 }
 
 NICE_XLABELS = {
-    "delta_clashscore": "Δ Clash Score",
-    "delta_outlier_fraction_bond_angles": "Δ Bond Angle Outlier Fraction",
-    "delta_outlier_fraction_bond_lengths": "Δ Bond Length Outlier Fraction",
-    "delta_rscc": "Δ RSCC",
-    "delta_silhouette_to_ref": "Δ Avg. Silhouette to Ref",
-    "clashscore": "Clash Score",
-    "rscc": "Real Space Correlation Coefficient",
-    "avg_silhouette_to_ref": "Avg. Silhouette to Ref",
+    "delta_clashscore": "Change in Clashscore (Guided − Baseline)",
+    "delta_outlier_fraction_bond_angles": "Change in Bond Angle Outlier Fraction (Guided − Baseline)",
+    "delta_outlier_fraction_bond_lengths": "Change in Bond Length Outlier Fraction (Guided − Baseline)",
+    "delta_rscc": "Change in RSCC (Guided − Baseline)",
+    "delta_silhouette_to_ref": "Change in Silhouette Score (Guided − Baseline)",
+    "clashscore": "Clashscore (steric clashes per 1000 atoms)",
+    "rscc": "Real-Space Correlation Coefficient (RSCC)",
+    "avg_silhouette_to_ref": "Avg. Silhouette Score to Reference",
     "ramachandran_z_score": "Ramachandran Z-Score",
     "torsion_z_score": "Torsion Z-Score",
     "outlier_fraction_bond_angles": "Bond Angle Outlier Fraction",
@@ -155,6 +199,17 @@ GW_TO_STRENGTH = {
     0.2: "medium",
     0.35: "medium",
     0.5: "strong",
+}
+
+OPTIMAL_GW = {
+    "boltz2X-RAY": 0.1,
+    "boltz2MD": 0.1,
+    "protenix": 0.1,
+    "protenix-mini": 0.1,
+    "protenix-tiny": 0.1,
+    "rf3": 0.01,
+    "rf3-old": 0.01,
+    "rf3-chiral-off": 0.01,
 }
 
 FIGURE_DIR = Path("figures")
@@ -418,10 +473,34 @@ def load_lddt(csv_path: str) -> pd.DataFrame:
     return df[_cols]
 
 
+def load_classification(csv_path: str) -> pd.DataFrame:
+    """Load conformational-change classification with lowercased protein names.
+
+    Parameters
+    ----------
+    csv_path : str
+        Path to ``classify_altloc_regions.csv``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: ``protein``, ``selection``, ``classification``.
+        ``protein`` is lowercased to match RSCC/LDDT conventions.
+    """
+    df = pd.read_csv(csv_path)
+    df["protein"] = df["protein"].str.lower()
+    return df[["protein", "selection", "classification"]]
+
+
 # ── Plotting helpers ──────────────────────────────────────────────────────────
 
 
-def save_fig(plot_obj, filename: str, fmt: str = "svg") -> Path:
+def save_fig(
+    plot_obj,
+    filename: str,
+    fmt: str = "svg",
+    annotate_source: bool = True,
+) -> Path:
     """Save a matplotlib figure or FacetGrid to the figures directory.
 
     Parameters
@@ -433,6 +512,8 @@ def save_fig(plot_obj, filename: str, fmt: str = "svg") -> Path:
         replaced by *fmt* so existing ``.png`` names are handled automatically.
     fmt : str
         Output format (default ``"svg"``).
+    annotate_source : bool
+        If True, add a small source annotation to the figure corner.
 
     Returns
     -------
@@ -458,15 +539,44 @@ def save_model_legend(filename: str = "model_legend", fmt: str = "svg") -> Path:
         handles=handles,
         loc="center",
         frameon=False,
-        fontsize=10,
+        fontsize=12,
         title="Model",
-        title_fontsize=11,
+        title_fontsize=13,
     )
     output_path = (FIGURE_DIR / filename).with_suffix(f".{fmt}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, bbox_inches="tight")
     plt.close(fig)
     return output_path
+
+
+def save_per_model_figures(
+    df: pd.DataFrame,
+    model_col: str,
+    make_fn: callable,
+    path_template: str,
+    *,
+    make_kwargs: dict | None = None,
+    close: bool = True,
+) -> None:
+    """Save one figure per unique model in *df*.
+
+    Parameters
+    ----------
+    make_fn : callable
+        ``make_fn(model_df, model_name, **make_kwargs) -> Figure``.
+    path_template : str
+        Format string with ``{slug}`` placeholder.
+    """
+    make_kwargs = make_kwargs or {}
+    for _model in sorted(df[model_col].unique()):
+        _model_df = df[df[model_col] == _model]
+        if _model_df.empty:
+            continue
+        fig = make_fn(_model_df, _model, **make_kwargs)
+        save_fig(fig, path_template.format(slug=model_slug(_model)))
+        if close:
+            plt.close(fig)
 
 
 def make_scatter_comparison(
@@ -481,10 +591,12 @@ def make_scatter_comparison(
     draw_diagonal: bool = False,
     highlight_top_n: int = 3,
     highlight_decreased: bool = True,
+    highlight_proteins: list[str] | None = None,
     label_all: bool = False,
     draw_regression: bool = False,
     show_correlation: bool = False,
     equal_aspect: bool = True,
+    show_marginal_kde: bool = False,
 ) -> plt.Figure:
     """Generic scatter plot comparing two metrics for a single model.
 
@@ -529,7 +641,15 @@ def make_scatter_comparison(
     if title is None:
         title = f"{display_name}: {y_label} vs {x_label}"
 
-    fig, ax = plt.subplots(figsize=(6, 6))
+    _w = 8 if label_all else 6
+    if show_marginal_kde:
+        fig = plt.figure(figsize=(_w, _w * 1.25))
+        gs = fig.add_gridspec(2, 1, height_ratios=[4, 1], hspace=0.05)
+        ax = fig.add_subplot(gs[0])
+        ax_kde = fig.add_subplot(gs[1], sharex=ax)
+    else:
+        fig, ax = plt.subplots(figsize=(_w, _w))
+        ax_kde = None
 
     x, y = df[x_col], df[y_col]
 
@@ -542,6 +662,10 @@ def make_scatter_comparison(
     # All points
     ax.scatter(x, y, c=color, s=40, alpha=0.7, edgecolors="white", linewidths=0.5, zorder=2)
 
+    # Collect every label we want to draw; adjust_text will reposition them
+    # all together at the end to avoid mutual overlaps.
+    texts: list = []
+
     # Delta-based highlighting
     if delta_col is not None and delta_col in df.columns:
         if highlight_decreased:
@@ -552,11 +676,10 @@ def make_scatter_comparison(
                     facecolors=color, s=60, edgecolors="#D32F2F", linewidths=1.5, zorder=3,
                 )
                 for _, r in dec.iterrows():
-                    ax.annotate(
-                        r["protein"].upper(), (r[x_col], r[y_col]),
-                        textcoords="offset points", xytext=(6, -8),
-                        fontsize=7, color="#D32F2F", fontweight="bold",
-                    )
+                    texts.append(ax.text(
+                        r[x_col], r[y_col], r["protein"].upper(),
+                        fontsize=11, color="#333333", zorder=10,
+                    ))
 
         if highlight_top_n > 0:
             imp = df.nlargest(highlight_top_n, delta_col)
@@ -567,20 +690,32 @@ def make_scatter_comparison(
                     facecolors=color, s=60, edgecolors="#2E7D32", linewidths=1.5, zorder=3,
                 )
                 for _, r in imp.iterrows():
-                    ax.annotate(
-                        r["protein"].upper(), (r[x_col], r[y_col]),
-                        textcoords="offset points", xytext=(6, 6),
-                        fontsize=7, color="#2E7D32", fontweight="bold",
-                    )
+                    texts.append(ax.text(
+                        r[x_col], r[y_col], r["protein"].upper(),
+                        fontsize=11, color="#333333", zorder=10,
+                    ))
+
+    if highlight_proteins:
+        wanted = {p.lower() for p in highlight_proteins}
+        picked = df[df["protein"].str.lower().isin(wanted)]
+        if not picked.empty:
+            ax.scatter(
+                picked[x_col], picked[y_col],
+                facecolors=color, s=60, edgecolors="#1565C0", linewidths=1.5, zorder=4,
+            )
+            for _, r in picked.iterrows():
+                texts.append(ax.text(
+                    r[x_col], r[y_col], r["protein"].upper(),
+                    fontsize=11, color="#333333", zorder=10,
+                ))
 
     # Label every point (when no delta highlighting)
     if label_all and delta_col is None:
         for _, r in df.iterrows():
-            ax.annotate(
-                r["protein"].upper(), (r[x_col], r[y_col]),
-                textcoords="offset points", xytext=(6, 4),
-                fontsize=6, color="#333333",
-            )
+            texts.append(ax.text(
+                r[x_col], r[y_col], r["protein"].upper(),
+                fontsize=8, color="#333333", zorder=10,
+            ))
 
     # Drop NaNs for regression / correlation (polyfit SVD fails on NaN)
     _finite = np.isfinite(x) & np.isfinite(y)
@@ -604,18 +739,59 @@ def make_scatter_comparison(
         r_val = np.corrcoef(_xf, _yf)[0, 1]
         ax.text(
             0.97, 0.03, f"r = {r_val:.3f}",
-            transform=ax.transAxes, fontsize=9, ha="right", va="bottom",
+            transform=ax.transAxes, fontsize=11, ha="right", va="bottom",
             bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#CCCCCC", alpha=0.8),
         )
 
-    ax.set_xlabel(x_label, fontsize=11)
-    ax.set_ylabel(y_label, fontsize=11)
-    ax.set_title(title, fontsize=12)
+    ax.set_ylabel(y_label, fontsize=13)
+    ax.set_title(title, fontsize=14)
+
+    if ax_kde is not None:
+        plt.setp(ax.get_xticklabels(), visible=False)
+        ax.tick_params(axis="x", length=0)
+        sns.kdeplot(x, ax=ax_kde, color="#888888", fill=True, alpha=0.3,
+                    label="Baseline", lw=1.5, bw_adjust=0.5)
+        sns.kdeplot(y, ax=ax_kde, color=color, fill=True, alpha=0.3,
+                    label="Guided", lw=1.5, bw_adjust=0.5)
+        ax_kde.set_xlabel(x_label, fontsize=13)
+        ax_kde.set_ylabel("Density", fontsize=11)
+        ax_kde.set_yticks([])
+        ax_kde.legend(fontsize=9, loc="upper right", frameon=True, framealpha=0.8, edgecolor="none")
+    else:
+        ax.set_xlabel(x_label, fontsize=13)
+
     if equal_aspect:
         ax.set_aspect("equal", adjustable="datalim")
         pad = 0.01
         ax.set_xlim(lo + pad, hi)
         ax.set_ylim(lo + pad, hi)
+
+    if texts:
+        _n = len(texts)
+        if _n > 15:
+            adjust_text(
+                texts, ax=ax,
+                arrowprops=dict(arrowstyle="-", color="#888888", lw=0.5),
+                expand=(1.5, 1.8),
+                force_text=(1.0, 1.5),
+                force_static=(0.8, 1.2),
+                force_explode=(0.5, 0.8),
+                ensure_inside_axes=False,
+                max_move=(40, 40),
+                time_lim=10,
+            )
+        else:
+            adjust_text(
+                texts, ax=ax,
+                arrowprops=dict(arrowstyle="-", color="#888888", lw=0.5),
+                expand=(1.3, 1.5),
+                force_text=(0.5, 0.8),
+                force_static=(0.5, 0.8),
+                force_explode=(0.3, 0.6),
+                ensure_inside_axes=True,
+                max_move=(20, 20),
+            )
+
     fig.tight_layout()
     return fig
 
@@ -638,7 +814,220 @@ def make_rscc_scatter(
         draw_diagonal=True,
         highlight_top_n=3,
         highlight_decreased=True,
+        highlight_proteins=["6b8x", "5mhx"],
+        show_marginal_kde=True,
     )
+
+
+def make_classified_scatter(
+    df: pd.DataFrame,
+    model_name: str,
+    *,
+    x_col: str = "rscc_baseline",
+    y_col: str = "rscc_optimal",
+    class_col: str = "classification",
+    x_label: str = "Baseline RSCC",
+    y_label: str | None = None,
+    title: str | None = None,
+    draw_diagonal: bool = True,
+    show_correlation: bool = False,
+    equal_aspect: bool = True,
+) -> plt.Figure:
+    """Scatter plot coloured by conformational-change classification.
+
+    Each point is one (protein, selection) pair for a single model.
+    """
+    from matplotlib.lines import Line2D
+
+    display_name = MODEL_DISPLAY.get(model_name, model_name)
+    if title is None:
+        title = f"{display_name}: RSCC by Conformation Type"
+    if y_label is None:
+        y_label = "Guided RSCC"
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    x, y = df[x_col], df[y_col]
+
+    if draw_diagonal:
+        lo = min(x.min(), y.min()) - 0.02
+        hi = max(x.max(), y.max()) + 0.02
+        ax.plot([lo, hi], [lo, hi], ls="--", color="#AAAAAA", lw=1, zorder=1)
+
+    handles = []
+    for cls in CLASSIFICATION_ORDER:
+        mask = df[class_col] == cls
+        if not mask.any():
+            continue
+        color = CLASSIFICATION_PALETTE[cls]
+        ax.scatter(
+            df.loc[mask, x_col],
+            df.loc[mask, y_col],
+            c=color,
+            s=45,
+            alpha=0.75,
+            edgecolors="white",
+            linewidths=0.5,
+            zorder=2,
+        )
+        handles.append(
+            Line2D(
+                [0], [0],
+                marker="o",
+                color="w",
+                markerfacecolor=color,
+                markersize=7,
+                label=CLASSIFICATION_DISPLAY[cls],
+            )
+        )
+
+    if show_correlation:
+        _finite = np.isfinite(x) & np.isfinite(y)
+        if int(_finite.sum()) >= 5:
+            r_val = float(np.corrcoef(x[_finite], y[_finite])[0, 1])
+            ax.text(
+                0.97, 0.03, f"r = {r_val:.3f}",
+                transform=ax.transAxes, fontsize=11, ha="right", va="bottom",
+                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#CCCCCC", alpha=0.8),
+            )
+
+    ax.set_xlabel(x_label, fontsize=13)
+    ax.set_ylabel(y_label, fontsize=13)
+    ax.set_title(title, fontsize=14)
+
+    if handles:
+        ax.legend(handles=handles, loc="upper left", fontsize=10, frameon=False)
+
+    if equal_aspect and draw_diagonal:
+        ax.set_aspect("equal", adjustable="datalim")
+        pad = 0.01
+        ax.set_xlim(lo + pad, hi)
+        ax.set_ylim(lo + pad, hi)
+    elif equal_aspect:
+        ax.set_aspect("equal", adjustable="datalim")
+
+    fig.tight_layout()
+    return fig
+
+
+def make_classified_aggregated_scatter(
+    agg_df: pd.DataFrame,
+    *,
+    x_col: str = "x_mean",
+    y_col: str = "y_mean",
+    x_err_lo_col: str = "x_err_lo",
+    x_err_hi_col: str = "x_err_hi",
+    y_err_lo_col: str = "y_err_lo",
+    y_err_hi_col: str = "y_err_hi",
+    class_col: str = "classification",
+    x_label: str = "Baseline RSCC (mean \u00b1 SD)",
+    y_label: str = "Guided RSCC at optimal gw (mean \u00b1 SD)",
+    title: str = "RSCC by Conformation Type",
+    draw_diagonal: bool = True,
+    equal_aspect: bool = True,
+    show_correlation: bool = False,
+    label_col: str | None = None,
+) -> plt.Figure:
+    """Aggregated scatter with error bars, coloured by classification.
+
+    Each row of *agg_df* is one (protein, selection) pair aggregated across
+    models.  Error bars show mean \u00b1 1 SD.
+    """
+    from matplotlib.lines import Line2D
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    x_all = agg_df[x_col].to_numpy()
+    y_all = agg_df[y_col].to_numpy()
+
+    if draw_diagonal:
+        lo = float(min(np.nanmin(agg_df[x_err_lo_col]), np.nanmin(agg_df[y_err_lo_col]))) - 0.02
+        hi = float(max(np.nanmax(agg_df[x_err_hi_col]), np.nanmax(agg_df[y_err_hi_col]))) + 0.02
+        ax.plot([lo, hi], [lo, hi], ls="--", color="#AAAAAA", lw=1, zorder=1)
+
+    handles = []
+    texts: list = []
+    for cls in CLASSIFICATION_ORDER:
+        sub = agg_df[agg_df[class_col] == cls]
+        if sub.empty:
+            continue
+        color = CLASSIFICATION_PALETTE[cls]
+        x_med = sub[x_col].to_numpy()
+        y_med = sub[y_col].to_numpy()
+        xerr = np.vstack([x_med - sub[x_err_lo_col].to_numpy(),
+                          sub[x_err_hi_col].to_numpy() - x_med])
+        yerr = np.vstack([y_med - sub[y_err_lo_col].to_numpy(),
+                          sub[y_err_hi_col].to_numpy() - y_med])
+        xerr = np.clip(xerr, 0, None)
+        yerr = np.clip(yerr, 0, None)
+
+        ax.errorbar(
+            x_med, y_med,
+            xerr=xerr, yerr=yerr,
+            fmt="none", ecolor=color, alpha=0.35, capsize=3, lw=1.0, zorder=2,
+        )
+        ax.scatter(
+            x_med, y_med,
+            c=color, s=55, edgecolors="white", linewidths=0.5, zorder=4,
+        )
+        handles.append(
+            Line2D(
+                [0], [0],
+                marker="o",
+                color="w",
+                markerfacecolor=color,
+                markersize=7,
+                label=CLASSIFICATION_DISPLAY[cls],
+            )
+        )
+
+        if label_col is not None and label_col in sub.columns:
+            for _, r in sub.iterrows():
+                texts.append(ax.text(
+                    r[x_col], r[y_col], str(r[label_col]).upper(),
+                    fontsize=9, color="#333333",
+                ))
+
+    if show_correlation:
+        _finite = np.isfinite(x_all) & np.isfinite(y_all)
+        if int(_finite.sum()) >= 5:
+            r_val = float(np.corrcoef(x_all[_finite], y_all[_finite])[0, 1])
+            ax.text(
+                0.97, 0.03, f"r = {r_val:.3f}",
+                transform=ax.transAxes, fontsize=11, ha="right", va="bottom",
+                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#CCCCCC", alpha=0.8),
+            )
+
+    ax.set_xlabel(x_label, fontsize=13)
+    ax.set_ylabel(y_label, fontsize=13)
+    ax.set_title(title, fontsize=14)
+
+    if handles:
+        ax.legend(handles=handles, loc="upper left", fontsize=10, frameon=False)
+
+    if equal_aspect and draw_diagonal:
+        ax.set_aspect("equal", adjustable="datalim")
+        pad = 0.01
+        ax.set_xlim(lo + pad, hi)
+        ax.set_ylim(lo + pad, hi)
+    elif equal_aspect:
+        ax.set_aspect("equal", adjustable="datalim")
+
+    if texts:
+        adjust_text(
+            texts, ax=ax,
+            arrowprops=dict(arrowstyle="-", color="#888888", lw=0.5),
+            expand=(1.5, 1.8),
+            force_text=(1.0, 1.5),
+            force_static=(0.8, 1.2),
+            force_explode=(0.5, 0.8),
+            ensure_inside_axes=False,
+            max_move=(40, 40),
+            time_lim=10,
+        )
+
+    fig.tight_layout()
+    return fig
 
 
 def make_aggregated_scatter(
@@ -658,7 +1047,11 @@ def make_aggregated_scatter(
     equal_aspect: bool = False,
     point_color: str = "#4D4D4D",
     label_points: bool = False,
+    highlight_top_n: int = 3,
+    highlight_decreased: bool = True,
+    highlight_proteins: list[str] | None = None,
     show_correlation: bool = False,
+    show_marginal_kde: bool = False,
 ) -> plt.Figure:
     """Scatter plot with asymmetric IQR error bars for cross-model aggregations.
 
@@ -667,7 +1060,14 @@ def make_aggregated_scatter(
     :func:`make_aggregated_spiral_figure` so the two figure families stay
     visually consistent.
     """
-    fig, ax = plt.subplots(figsize=(6, 6))
+    if show_marginal_kde:
+        fig = plt.figure(figsize=(6, 7.5))
+        gs = fig.add_gridspec(2, 1, height_ratios=[4, 1], hspace=0.05)
+        ax = fig.add_subplot(gs[0])
+        ax_kde = fig.add_subplot(gs[1], sharex=ax)
+    else:
+        fig, ax = plt.subplots(figsize=(6, 6))
+        ax_kde = None
 
     x_med = agg_df[x_col].to_numpy()
     y_med = agg_df[y_col].to_numpy()
@@ -700,14 +1100,54 @@ def make_aggregated_scatter(
         edgecolors="white", linewidths=0.5, zorder=4,
     )
 
-    if label_points and label_col in agg_df.columns:
-        for _, r in agg_df.iterrows():
-            ax.annotate(
-                str(r[label_col]).upper(),
-                (r[x_col], r[y_col]),
-                textcoords="offset points", xytext=(6, 4),
-                fontsize=6, color="#333333",
+    texts: list = []
+    _delta = agg_df[y_col] - agg_df[x_col]
+
+    if highlight_decreased and label_col in agg_df.columns:
+        dec = agg_df[_delta < 0]
+        if not dec.empty:
+            ax.scatter(
+                dec[x_col], dec[y_col],
+                facecolors=point_color, s=70,
+                edgecolors="#D32F2F", linewidths=1.5, zorder=5,
             )
+            for _, r in dec.iterrows():
+                texts.append(ax.text(
+                    r[x_col], r[y_col], str(r[label_col]).upper(),
+                    fontsize=11, color="#333333", zorder=10,
+                ))
+
+    if highlight_top_n > 0 and label_col in agg_df.columns:
+        imp = agg_df.loc[_delta.nlargest(highlight_top_n).index]
+        imp = imp[_delta.loc[imp.index] > 0]
+        if not imp.empty:
+            ax.scatter(
+                imp[x_col], imp[y_col],
+                facecolors=point_color, s=70,
+                edgecolors="#2E7D32", linewidths=1.5, zorder=5,
+            )
+            for _, r in imp.iterrows():
+                texts.append(ax.text(
+                    r[x_col], r[y_col], str(r[label_col]).upper(),
+                    fontsize=11, color="#333333", zorder=10,
+                ))
+
+    if highlight_proteins and label_col in agg_df.columns:
+        wanted = {p.lower() for p in highlight_proteins}
+        picked = agg_df[agg_df[label_col].str.lower().isin(wanted)]
+        already = {t.get_text().lower() for t in texts}
+        picked = picked[~picked[label_col].str.upper().str.lower().isin(already)]
+        if not picked.empty:
+            ax.scatter(
+                picked[x_col], picked[y_col],
+                facecolors=point_color, s=70,
+                edgecolors="#1565C0", linewidths=1.5, zorder=5,
+            )
+            for _, r in picked.iterrows():
+                texts.append(ax.text(
+                    r[x_col], r[y_col], str(r[label_col]).upper(),
+                    fontsize=11, color="#333333", zorder=10,
+                ))
 
     if show_correlation:
         _finite = np.isfinite(x_med) & np.isfinite(y_med)
@@ -715,13 +1155,26 @@ def make_aggregated_scatter(
             r_val = float(np.corrcoef(x_med[_finite], y_med[_finite])[0, 1])
             ax.text(
                 0.97, 0.03, f"r = {r_val:.3f}",
-                transform=ax.transAxes, fontsize=9, ha="right", va="bottom",
+                transform=ax.transAxes, fontsize=11, ha="right", va="bottom",
                 bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#CCCCCC", alpha=0.8),
             )
 
-    ax.set_xlabel(x_label, fontsize=11)
-    ax.set_ylabel(y_label, fontsize=11)
-    ax.set_title(title, fontsize=12)
+    ax.set_ylabel(y_label, fontsize=13)
+    ax.set_title(title, fontsize=14)
+
+    if ax_kde is not None:
+        plt.setp(ax.get_xticklabels(), visible=False)
+        ax.tick_params(axis="x", length=0)
+        sns.kdeplot(x_med, ax=ax_kde, color="#888888", fill=True, alpha=0.3,
+                    label="Baseline", lw=1.5, bw_adjust=0.5)
+        sns.kdeplot(y_med, ax=ax_kde, color=point_color, fill=True, alpha=0.3,
+                    label="Guided", lw=1.5, bw_adjust=0.5)
+        ax_kde.set_xlabel(x_label, fontsize=13)
+        ax_kde.set_ylabel("Density", fontsize=11)
+        ax_kde.set_yticks([])
+        ax_kde.legend(fontsize=9, loc="upper right", frameon=True, framealpha=0.8, edgecolor="none")
+    else:
+        ax.set_xlabel(x_label, fontsize=13)
 
     if equal_aspect and draw_diagonal:
         ax.set_aspect("equal", adjustable="datalim")
@@ -730,6 +1183,18 @@ def make_aggregated_scatter(
         ax.set_ylim(lo + pad, hi)
     elif equal_aspect:
         ax.set_aspect("equal", adjustable="datalim")
+
+    if texts:
+        adjust_text(
+            texts, ax=ax,
+            arrowprops=dict(arrowstyle="-", color="#888888", lw=0.5),
+            expand=(1.3, 1.5),
+            force_text=(0.5, 0.8),
+            force_static=(0.5, 0.8),
+            force_explode=(0.3, 0.6),
+            ensure_inside_axes=True,
+            max_move=(20, 20),
+        )
 
     fig.tight_layout()
     return fig
@@ -744,6 +1209,7 @@ def make_ridge_plot(
     xlim: tuple[float, float] | None = None,
     combined: bool = False,
     bin_width: float = 0.02,
+    title: str | None = None,
 ) -> sns.FacetGrid | plt.Figure:
     """Ridge/joy-plot comparing distributions across model types and guidance strengths.
 
@@ -764,6 +1230,8 @@ def make_ridge_plot(
         colored by model using MODEL_PALETTE.
     bin_width : float
         Bin width for histplot when ``combined=True``.
+    title : str or None
+        Optional suptitle for the figure.
 
     Returns
     -------
@@ -788,6 +1256,7 @@ def make_ridge_plot(
             is_delta=is_delta,
             xlim=xlim,
             bin_width=bin_width,
+            title=title,
         )
 
     hue_order = [
@@ -859,7 +1328,7 @@ def make_ridge_plot(
             display,
             transform=ax.transAxes,
             fontweight="bold",
-            fontsize=10,
+            fontsize=12,
             va="top",
             ha="left",
             color="#222222",
@@ -877,13 +1346,16 @@ def make_ridge_plot(
         framealpha=0.9,
         edgecolor="none",
         title="Guidance",
-        fontsize=9,
-        title_fontsize=9,
+        fontsize=11,
+        title_fontsize=11,
         bbox_to_anchor=(0.99, 0.99),
     )
 
     g.set(xlabel=xlabel)
-    g.figure.subplots_adjust(hspace=0.6, right=0.95)
+    _top = 0.93 if title else 1.0
+    g.figure.subplots_adjust(hspace=0.6, right=0.95, top=_top)
+    if title:
+        g.figure.suptitle(title, fontsize=14, fontweight="bold")
     g.set_titles("")
     g.set(yticks=[], yticklabels=[], ylabel="")
     return g
@@ -898,32 +1370,27 @@ def _make_combined_hist_plot(
     is_delta: bool,
     xlim: tuple[float, float] | None,
     bin_width: float,
+    title: str | None = None,
 ) -> plt.Figure:
-    """Single-axes histplot+KDE with all models overlaid, colored by MODEL_PALETTE."""
+    """Single-axes KDE with all models overlaid, colored by MODEL_PALETTE."""
     model_order = sorted(df["model_name"].unique())
-
-    values = df[plot_column_name].replace([np.inf, -np.inf], np.nan).dropna()
-    lo = float(np.floor(values.min() / bin_width) * bin_width)
-    hi = float(np.ceil(values.max() / bin_width) * bin_width) + bin_width / 2
-    bins = np.arange(lo, hi, bin_width)
 
     fig, ax = plt.subplots(figsize=(10, 3.2))
 
     for model in model_order:
         data = df[df["model_name"] == model]
+        if data.empty:
+            continue
         color = MODEL_PALETTE.get(model, "#888888")
-        sns.histplot(
+        sns.kdeplot(
             data=data,
             x=plot_column_name,
             ax=ax,
-            bins=bins,
-            kde=True,
-            stat="density",
+            fill=True,
             alpha=0.35,
             linewidth=1.5,
             color=color,
-            edgecolor=color,
-            kde_kws={"bw_adjust": smoothing},
+            bw_adjust=smoothing,
         )
 
     if is_delta:
@@ -952,8 +1419,70 @@ def _make_combined_hist_plot(
         framealpha=0.9,
         edgecolor="none",
         title="Model",
-        fontsize=9,
-        title_fontsize=9,
+        fontsize=11,
+        title_fontsize=11,
+    )
+
+    if title:
+        fig.suptitle(title, fontsize=14, fontweight="bold")
+        fig.tight_layout(rect=[0, 0, 1, 0.95])
+    else:
+        fig.tight_layout()
+    return fig
+
+
+def make_combined_baseline_distributions(
+    rscc_df: pd.DataFrame,
+    lddt_df: pd.DataFrame,
+    rscc_col: str = "rscc",
+    lddt_col: str = "avg_silhouette_to_ref",
+    rscc_xlabel: str = "RSCC",
+    lddt_xlabel: str = "Average Silhouette Score to Reference (LDDT Clustering)",
+    smoothing: float = 0.15,
+    bin_width: float = 0.02,
+) -> plt.Figure:
+    """Two baseline distribution panels (RSCC on top, LDDT below) sharing one legend."""
+    model_order = sorted(
+        set(rscc_df["model_name"].unique()) | set(lddt_df["model_name"].unique())
+    )
+
+    fig, (ax_rscc, ax_lddt) = plt.subplots(
+        2, 1, figsize=(10, 5.6), sharex=False,
+    )
+
+    for ax, df, col, xlabel in [
+        (ax_rscc, rscc_df, rscc_col, rscc_xlabel),
+        (ax_lddt, lddt_df, lddt_col, lddt_xlabel),
+    ]:
+        for model in model_order:
+            data = df[df["model_name"] == model]
+            if data.empty:
+                continue
+            color = MODEL_PALETTE.get(model, "#888888")
+            sns.kdeplot(
+                data=data, x=col, ax=ax,
+                fill=True, alpha=0.35, linewidth=1.5,
+                color=color, bw_adjust=smoothing,
+            )
+
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel("Density")
+        for spine in ["top", "right"]:
+            ax.spines[spine].set_visible(False)
+
+    legend_handles = [
+        Patch(
+            facecolor=MODEL_PALETTE.get(m, "#888888"),
+            alpha=0.35,
+            label=MODEL_DISPLAY.get(m, m),
+        )
+        for m in model_order
+    ]
+    ax_rscc.legend(
+        handles=legend_handles,
+        loc="upper right",
+        frameon=True, framealpha=0.9, edgecolor="none",
+        title="Model", fontsize=11, title_fontsize=11,
     )
 
     fig.tight_layout()
@@ -1239,7 +1768,7 @@ def make_tradeoff_grid(
                 ax.set_xlim(row_xlim[metric])
             ax.set_ylim(y_lim)
             if row_idx == 0:
-                ax.set_title(MODEL_DISPLAY.get(model, model), fontsize=11)
+                ax.set_title(MODEL_DISPLAY.get(model, model), fontsize=13)
             if col_idx == 0:
                 ax.set_ylabel(y_label)
             ax.set_xlabel(xlabel)
@@ -1279,7 +1808,7 @@ def make_tradeoff_grid(
         bbox_to_anchor=(0.5, 1.01),
     )
     if title is not None:
-        fig.suptitle(title, y=1.05, fontsize=13)
+        fig.suptitle(title, y=1.05, fontsize=15)
     fig.tight_layout()
     return fig, axes, model_order
 
@@ -1404,7 +1933,7 @@ def annotate_tradeoff_highlights(
                                 xy=(getattr(row, metric), getattr(row, y_col)),
                                 xytext=offset,
                                 textcoords="offset points",
-                                fontsize=6.4,
+                                fontsize=8,
                                 ha="left" if side == "right" else "right",
                                 va="center",
                                 bbox={
@@ -1470,7 +1999,7 @@ def annotate_tradeoff_highlights(
         bbox_to_anchor=(0.5, 1.03),
     )
     if title is not None:
-        fig.suptitle(title, y=1.08, fontsize=13)
+        fig.suptitle(title, y=1.08, fontsize=15)
     fig.tight_layout()
     return fig
 
@@ -1653,7 +2182,7 @@ def make_conceptual_tradeoff_figure(
     ax.set_ylim(plot_ylim)
     ax.set_xlabel("Δ RSCC vs baseline")
     ax.set_ylabel("Geometry penalty")
-    ax.set_title(title, fontsize=13)
+    ax.set_title(title, fontsize=15)
     fig.tight_layout()
     return fig
 
@@ -1741,7 +2270,7 @@ def make_spiral_figure(
             xy=(xe, ye),
             xytext=(6, 6),
             textcoords="offset points",
-            fontsize=7,
+            fontsize=9,
             fontweight="bold",
             color="#333333",
             bbox=dict(
@@ -1771,18 +2300,18 @@ def make_spiral_figure(
         ax.set_ylim(y_lo - y_pad, y_hi + y_pad)
 
     ax.set_yscale("symlog", linthresh=1.0)
-    ax.set_xlabel("Δ RSCC vs. baseline", fontsize=11)
-    ax.set_ylabel("∆ Geometry penalty vs. baseline", fontsize=11)
+    ax.set_xlabel("Δ RSCC vs. baseline", fontsize=13)
+    ax.set_ylabel("∆ Geometry penalty vs. baseline", fontsize=13)
 
     display = MODEL_DISPLAY.get(model_key, model_key)
     ax.set_title(
-        f"{display}: guidance strength tradeoff", fontsize=13, fontweight="bold"
+        f"{display}: guidance strength tradeoff", fontsize=15, fontweight="bold"
     )
 
     sm = ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
     cbar = fig.colorbar(sm, ax=ax, shrink=0.75, pad=0.02)
-    cbar.set_label("Guidance weight", fontsize=10)
+    cbar.set_label("Guidance weight", fontsize=12)
 
     fig.tight_layout()
     return fig
@@ -1797,6 +2326,7 @@ def make_aggregated_spiral_figure(
     ylim: tuple[float, float] | None = None,
     linthresh: float = 1.0,
     min_n: int = 3,
+    optimal_gw: dict[str, float] | None = None,
 ):
     """Aggregated guidance-weight spiral trajectory figure.
 
@@ -1824,11 +2354,18 @@ def make_aggregated_spiral_figure(
     min_n : int
         Minimum number of proteins required in a group; smaller groups are
         dropped (IQR is unreliable with very few points).
+    optimal_gw : dict[str, float] or None
+        Mapping of ``model_name`` → optimal guidance weight. If provided, the
+        point corresponding to each model's optimal guidance weight is drawn
+        with a thicker black outline.
 
     Returns
     -------
     matplotlib.figure.Figure
     """
+    if optimal_gw is None:
+        optimal_gw = OPTIMAL_GW
+
     agg = (
         tradeoff_df
         .groupby(["model_name", "guidance_weight"], as_index=False)
@@ -1904,33 +2441,43 @@ def make_aggregated_spiral_figure(
             zorder=2,
         )
 
+        # Scale dot size by guidance weight (baseline omitted here, so use
+        # gws directly). Map [min_gw, max_gw] → [s_min, s_max].
+        s_min, s_max = 30.0, 220.0
+        gw_hi = float(max(gws)) if len(gws) else 1.0
+        gw_lo = float(min(gws)) if len(gws) else 0.0
+        if gw_hi > gw_lo:
+            sizes = s_min + (gws - gw_lo) / (gw_hi - gw_lo) * (s_max - s_min)
+        else:
+            sizes = np.full_like(gws, (s_min + s_max) / 2.0, dtype=float)
+
+        # Per-point outline: thick black ring on the optimal guidance weight,
+        # thin white ring everywhere else.
+        opt_gw = optimal_gw.get(m)
+        if opt_gw is None:
+            edge_colors = ["white"] * len(gws)
+            edge_widths = [0.6 if single_mode else 0.5] * len(gws)
+        else:
+            edge_colors = [
+                "#111111" if np.isclose(gw, opt_gw) else "white" for gw in gws
+            ]
+            edge_widths = [
+                2.0 if np.isclose(gw, opt_gw) else (0.6 if single_mode else 0.5)
+                for gw in gws
+            ]
+
         if single_mode:
             dot_colors = flare_cmap(gw_norm(gws))
             ax.scatter(
                 x_med, y_med,
-                c=dot_colors, s=70,
-                edgecolors="white", linewidths=0.6, zorder=4,
+                c=dot_colors, s=sizes,
+                edgecolors=edge_colors, linewidths=edge_widths, zorder=4,
             )
         else:
             ax.scatter(
                 x_med, y_med,
-                c=[line_color], s=55,
-                edgecolors="white", linewidths=0.5, zorder=4,
-            )
-
-        # Arrowhead on the final segment
-        if len(xs) >= 2:
-            ax.annotate(
-                "",
-                xy=(xs[-1], ys[-1]),
-                xytext=(xs[-2], ys[-2]),
-                arrowprops=dict(
-                    arrowstyle="-|>",
-                    color=line_color,
-                    lw=0.0,
-                    mutation_scale=10,
-                ),
-                zorder=5,
+                c=[line_color] * len(gws), s=sizes,
+                edgecolors=edge_colors, linewidths=edge_widths, zorder=4,
             )
 
     ax.axvline(0, color="#555555", ls="--", lw=0.8, alpha=0.5)
@@ -1938,10 +2485,7 @@ def make_aggregated_spiral_figure(
 
     ax.set_yscale("symlog", linthresh=linthresh)
 
-    if xlim is not None and ylim is not None:
-        ax.set_xlim(xlim)
-        ax.set_ylim(ylim)
-    else:
+    if xlim is None or ylim is None:
         all_x = np.concatenate([
             agg["x_q1"].to_numpy(),
             agg["x_q3"].to_numpy(),
@@ -1956,35 +2500,51 @@ def make_aggregated_spiral_figure(
         y_lo, y_hi = float(all_y.min()), float(all_y.max())
         x_pad = max(0.08 * (x_hi - x_lo), 0.02)
         y_pad = max(0.08 * (y_hi - y_lo), 0.50)
-        ax.set_xlim(x_lo - x_pad, x_hi + x_pad)
-        ax.set_ylim(y_lo - y_pad, y_hi + y_pad)
 
-    ax.set_xlabel("Δ RSCC vs. baseline (median)", fontsize=11)
-    ax.set_ylabel("∆ Geometry penalty vs. baseline (median)", fontsize=11)
+    ax.set_xlim(xlim if xlim is not None else (x_lo - x_pad, x_hi + x_pad))
+    ax.set_ylim(ylim if ylim is not None else (y_lo - y_pad, y_hi + y_pad))
+
+    ax.set_xlabel("Δ RSCC vs. baseline (median)", fontsize=13)
+    ax.set_ylabel("∆ Geometry penalty vs. baseline (median)", fontsize=13)
+
+    optimal_handle = Line2D(
+        [0], [0], marker="o", color="w",
+        markerfacecolor="#CCCCCC", markeredgecolor="#111111", markeredgewidth=2.0,
+        markersize=10, label="Optimal guidance",
+    )
 
     if model_key is not None:
         display = MODEL_DISPLAY.get(model_key, model_key)
         ax.set_title(
             f"{display}: aggregated guidance tradeoff",
-            fontsize=13, fontweight="bold",
+            fontsize=15, fontweight="bold",
         )
         sm = ScalarMappable(cmap=flare_cmap, norm=gw_norm)
         sm.set_array([])
         cbar = fig.colorbar(sm, ax=ax, shrink=0.75, pad=0.02)
-        cbar.set_label("Guidance weight", fontsize=10)
+        cbar.set_label("Guidance weight", fontsize=12)
+        ax.legend(
+            handles=[optimal_handle],
+            loc="upper right",
+            frameon=True, framealpha=0.9, edgecolor="none",
+            fontsize=10,
+        )
     else:
         ax.set_title(
             "Aggregated guidance strength tradeoff",
-            fontsize=13, fontweight="bold",
+            fontsize=15, fontweight="bold",
         )
+        model_handles, model_labels = ax.get_legend_handles_labels()
         ax.legend(
-            loc="best",
+            handles=list(model_handles) + [optimal_handle],
+            labels=list(model_labels) + ["Optimal guidance"],
+            loc="upper right",
             frameon=True,
             framealpha=0.9,
             edgecolor="none",
-            fontsize=9,
+            fontsize=11,
             title="Model",
-            title_fontsize=10,
+            title_fontsize=12,
         )
 
     fig.tight_layout()
