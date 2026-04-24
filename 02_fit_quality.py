@@ -133,26 +133,19 @@ def _(add_simplified_metadata_columns, load_rscc, nan_rscc_proteins):
     rscc = load_rscc("initial40results/rscc_results.csv")
     if nan_rscc_proteins:
         rscc = rscc[~rscc["protein"].isin(nan_rscc_proteins)]
-    # For each group, keep only the longest selection string (the most inclusive
-    # "all alternate residues" selection), then average RSCC across conformers.
-    rscc["_sel_len"] = rscc["selection"].str.len()
-    _max_len = rscc.groupby(["protein", "model_name", "guidance_weight"])["_sel_len"].transform("max")
+    # Collapse the per-altloc-region rows to a single RSCC per (protein, model, gw)
+    # by averaging across all selections.
     rscc_all = (
-        rscc[rscc["_sel_len"] == _max_len]
-        .groupby(["protein", "model_name", "guidance_weight"], as_index=False)["rscc"]
+        rscc.groupby(["protein", "model_name", "guidance_weight"], as_index=False)["rscc"]
         .mean()
     )
-    rscc.drop(columns="_sel_len", inplace=True)
     rscc_all = add_simplified_metadata_columns(rscc_all)
     return rscc, rscc_all
 
 
 @app.cell
 def _(add_simplified_metadata_columns, load_lddt, nan_rscc_proteins):
-    # NOTE: rf3-fixed lDDT results are missing from the CSV. As a temporary
-    # workaround, rf3-chiral-off rows were duplicated as rf3-fixed so that RF3
-    # appears in lDDT plots. Replace with real rf3-fixed data when available.
-    lddt_results = load_lddt("initial40results/lddt_results_w_baseline.csv")
+    lddt_results = load_lddt("initial40results/lddt_results.csv")
     lddt_results_1 = add_simplified_metadata_columns(lddt_results)
     if nan_rscc_proteins:
         lddt_results_1 = lddt_results_1[~lddt_results_1["protein"].isin(nan_rscc_proteins)]

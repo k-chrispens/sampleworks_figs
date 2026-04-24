@@ -24,8 +24,18 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
 # ── Publication styling ───────────────────────────────────────────────────────
-sns.set_context("paper", font_scale=1.4)
+sns.set_context("paper")
 sns.set_style("ticks")
+plt.rcParams.update({
+    "axes.titlesize": 17,
+    "axes.labelsize": 15,
+    "xtick.labelsize": 13,
+    "ytick.labelsize": 13,
+    "legend.fontsize": 12,
+    "legend.title_fontsize": 13,
+    "figure.titlesize": 18,
+    "font.size": 12,
+})
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -478,7 +488,9 @@ def load_lddt(csv_path: str) -> pd.DataFrame:
     if not os.path.exists(csv_path):
         print(f"⚠️  {csv_path} not found — LDDT sections will be empty")
         return pd.DataFrame(columns=_cols)
-    df = pd.read_csv(csv_path)
+    df = pd.read_csv(csv_path, dtype={"error": str}).fillna({"error": ""})
+    _occ = OCC_FILTER_ALTLOC
+    df = df.query("altloc_occupancies == @_occ").copy()
     df["model_name"] = df.apply(
         lambda x: x["model"] + x["method"] if x["model"] == "boltz2" else x["model"],
         axis=1,
@@ -553,9 +565,7 @@ def save_model_legend(filename: str = "model_legend", fmt: str = "svg") -> Path:
         handles=handles,
         loc="center",
         frameon=False,
-        fontsize=12,
         title="Model",
-        title_fontsize=13,
     )
     output_path = (FIGURE_DIR / filename).with_suffix(f".{fmt}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -692,7 +702,7 @@ def make_scatter_comparison(
                 for _, r in dec.iterrows():
                     texts.append(ax.text(
                         r[x_col], r[y_col], r["protein"].upper(),
-                        fontsize=11, color="#333333", zorder=10,
+                        color="#333333", zorder=10,
                     ))
 
         if highlight_top_n > 0:
@@ -706,7 +716,7 @@ def make_scatter_comparison(
                 for _, r in imp.iterrows():
                     texts.append(ax.text(
                         r[x_col], r[y_col], r["protein"].upper(),
-                        fontsize=11, color="#333333", zorder=10,
+                        color="#333333", zorder=10,
                     ))
 
     if highlight_proteins:
@@ -720,7 +730,7 @@ def make_scatter_comparison(
             for _, r in picked.iterrows():
                 texts.append(ax.text(
                     r[x_col], r[y_col], r["protein"].upper(),
-                    fontsize=11, color="#333333", zorder=10,
+                    color="#333333", zorder=10,
                 ))
 
     # Label every point (when no delta highlighting)
@@ -728,7 +738,7 @@ def make_scatter_comparison(
         for _, r in df.iterrows():
             texts.append(ax.text(
                 r[x_col], r[y_col], r["protein"].upper(),
-                fontsize=8, color="#333333", zorder=10,
+                color="#333333", zorder=10,
             ))
 
     # Drop NaNs for regression / correlation (polyfit SVD fails on NaN)
@@ -753,12 +763,12 @@ def make_scatter_comparison(
         r_val = np.corrcoef(_xf, _yf)[0, 1]
         ax.text(
             0.97, 0.03, f"r = {r_val:.3f}",
-            transform=ax.transAxes, fontsize=11, ha="right", va="bottom",
+            transform=ax.transAxes, ha="right", va="bottom",
             bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#CCCCCC", alpha=0.8),
         )
 
-    ax.set_ylabel(y_label, fontsize=13)
-    ax.set_title(title, fontsize=14)
+    ax.set_ylabel(y_label)
+    ax.set_title(title)
 
     if ax_kde is not None:
         plt.setp(ax.get_xticklabels(), visible=False)
@@ -767,12 +777,12 @@ def make_scatter_comparison(
                     label="Baseline", lw=1.5, bw_adjust=0.5)
         sns.kdeplot(y, ax=ax_kde, color=color, fill=True, alpha=0.3,
                     label="Guided", lw=1.5, bw_adjust=0.5)
-        ax_kde.set_xlabel(x_label, fontsize=13)
-        ax_kde.set_ylabel("Density", fontsize=11)
+        ax_kde.set_xlabel(x_label)
+        ax_kde.set_ylabel("Density")
         ax_kde.set_yticks([])
-        ax_kde.legend(fontsize=9, loc="upper right", frameon=True, framealpha=0.8, edgecolor="none")
+        ax_kde.legend(loc="upper right", frameon=True, framealpha=0.8, edgecolor="none")
     else:
-        ax.set_xlabel(x_label, fontsize=13)
+        ax.set_xlabel(x_label)
 
     if equal_aspect:
         ax.set_aspect("equal", adjustable="datalim")
@@ -901,16 +911,16 @@ def make_classified_scatter(
             r_val = float(np.corrcoef(x[_finite], y[_finite])[0, 1])
             ax.text(
                 0.97, 0.03, f"r = {r_val:.3f}",
-                transform=ax.transAxes, fontsize=11, ha="right", va="bottom",
+                transform=ax.transAxes, ha="right", va="bottom",
                 bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#CCCCCC", alpha=0.8),
             )
 
-    ax.set_xlabel(x_label, fontsize=13)
-    ax.set_ylabel(y_label, fontsize=13)
-    ax.set_title(title, fontsize=14)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    ax.set_title(title)
 
     if handles:
-        ax.legend(handles=handles, loc="upper left", fontsize=10, frameon=False)
+        ax.legend(handles=handles, loc="upper left", frameon=False)
 
     if equal_aspect and draw_diagonal:
         ax.set_aspect("equal", adjustable="datalim")
@@ -999,7 +1009,7 @@ def make_classified_aggregated_scatter(
             for _, r in sub.iterrows():
                 texts.append(ax.text(
                     r[x_col], r[y_col], str(r[label_col]).upper(),
-                    fontsize=9, color="#333333",
+                    color="#333333",
                 ))
 
     if show_correlation:
@@ -1008,16 +1018,16 @@ def make_classified_aggregated_scatter(
             r_val = float(np.corrcoef(x_all[_finite], y_all[_finite])[0, 1])
             ax.text(
                 0.97, 0.03, f"r = {r_val:.3f}",
-                transform=ax.transAxes, fontsize=11, ha="right", va="bottom",
+                transform=ax.transAxes, ha="right", va="bottom",
                 bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#CCCCCC", alpha=0.8),
             )
 
-    ax.set_xlabel(x_label, fontsize=13)
-    ax.set_ylabel(y_label, fontsize=13)
-    ax.set_title(title, fontsize=14)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    ax.set_title(title)
 
     if handles:
-        ax.legend(handles=handles, loc="upper left", fontsize=10, frameon=False)
+        ax.legend(handles=handles, loc="upper left", frameon=False)
 
     if equal_aspect and draw_diagonal:
         ax.set_aspect("equal", adjustable="datalim")
@@ -1128,7 +1138,7 @@ def make_aggregated_scatter(
             for _, r in dec.iterrows():
                 texts.append(ax.text(
                     r[x_col], r[y_col], str(r[label_col]).upper(),
-                    fontsize=11, color="#333333", zorder=10,
+                    color="#333333", zorder=10,
                 ))
 
     if highlight_top_n > 0 and label_col in agg_df.columns:
@@ -1143,7 +1153,7 @@ def make_aggregated_scatter(
             for _, r in imp.iterrows():
                 texts.append(ax.text(
                     r[x_col], r[y_col], str(r[label_col]).upper(),
-                    fontsize=11, color="#333333", zorder=10,
+                    color="#333333", zorder=10,
                 ))
 
     if highlight_proteins and label_col in agg_df.columns:
@@ -1160,7 +1170,7 @@ def make_aggregated_scatter(
             for _, r in picked.iterrows():
                 texts.append(ax.text(
                     r[x_col], r[y_col], str(r[label_col]).upper(),
-                    fontsize=11, color="#333333", zorder=10,
+                    color="#333333", zorder=10,
                 ))
 
     if show_correlation:
@@ -1169,12 +1179,12 @@ def make_aggregated_scatter(
             r_val = float(np.corrcoef(x_med[_finite], y_med[_finite])[0, 1])
             ax.text(
                 0.97, 0.03, f"r = {r_val:.3f}",
-                transform=ax.transAxes, fontsize=11, ha="right", va="bottom",
+                transform=ax.transAxes, ha="right", va="bottom",
                 bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#CCCCCC", alpha=0.8),
             )
 
-    ax.set_ylabel(y_label, fontsize=13)
-    ax.set_title(title, fontsize=14)
+    ax.set_ylabel(y_label)
+    ax.set_title(title)
 
     if ax_kde is not None:
         plt.setp(ax.get_xticklabels(), visible=False)
@@ -1183,12 +1193,12 @@ def make_aggregated_scatter(
                     label="Baseline", lw=1.5, bw_adjust=0.5)
         sns.kdeplot(y_med, ax=ax_kde, color=point_color, fill=True, alpha=0.3,
                     label="Guided", lw=1.5, bw_adjust=0.5)
-        ax_kde.set_xlabel(x_label, fontsize=13)
-        ax_kde.set_ylabel("Density", fontsize=11)
+        ax_kde.set_xlabel(x_label)
+        ax_kde.set_ylabel("Density")
         ax_kde.set_yticks([])
-        ax_kde.legend(fontsize=9, loc="upper right", frameon=True, framealpha=0.8, edgecolor="none")
+        ax_kde.legend(loc="upper right", frameon=True, framealpha=0.8, edgecolor="none")
     else:
-        ax.set_xlabel(x_label, fontsize=13)
+        ax.set_xlabel(x_label)
 
     if equal_aspect and draw_diagonal:
         ax.set_aspect("equal", adjustable="datalim")
@@ -1342,7 +1352,6 @@ def make_ridge_plot(
             display,
             transform=ax.transAxes,
             fontweight="bold",
-            fontsize=12,
             va="top",
             ha="left",
             color="#222222",
@@ -1360,8 +1369,6 @@ def make_ridge_plot(
         framealpha=0.9,
         edgecolor="none",
         title="Guidance",
-        fontsize=11,
-        title_fontsize=11,
         bbox_to_anchor=(0.99, 0.99),
     )
 
@@ -1369,7 +1376,7 @@ def make_ridge_plot(
     _top = 0.93 if title else 1.0
     g.figure.subplots_adjust(hspace=0.6, right=0.95, top=_top)
     if title:
-        g.figure.suptitle(title, fontsize=14, fontweight="bold")
+        g.figure.suptitle(title, fontweight="bold")
     g.set_titles("")
     g.set(yticks=[], yticklabels=[], ylabel="")
     return g
@@ -1433,12 +1440,10 @@ def _make_combined_hist_plot(
         framealpha=0.9,
         edgecolor="none",
         title="Model",
-        fontsize=11,
-        title_fontsize=11,
     )
 
     if title:
-        fig.suptitle(title, fontsize=14, fontweight="bold")
+        fig.suptitle(title, fontweight="bold")
         fig.tight_layout(rect=[0, 0, 1, 0.95])
     else:
         fig.tight_layout()
@@ -1496,7 +1501,7 @@ def make_combined_baseline_distributions(
         handles=legend_handles,
         loc="upper right",
         frameon=True, framealpha=0.9, edgecolor="none",
-        title="Model", fontsize=11, title_fontsize=11,
+        title="Model",
     )
 
     fig.tight_layout()
@@ -1782,7 +1787,7 @@ def make_tradeoff_grid(
                 ax.set_xlim(row_xlim[metric])
             ax.set_ylim(y_lim)
             if row_idx == 0:
-                ax.set_title(MODEL_DISPLAY.get(model, model), fontsize=13)
+                ax.set_title(MODEL_DISPLAY.get(model, model))
             if col_idx == 0:
                 ax.set_ylabel(y_label)
             ax.set_xlabel(xlabel)
@@ -1822,7 +1827,7 @@ def make_tradeoff_grid(
         bbox_to_anchor=(0.5, 1.01),
     )
     if title is not None:
-        fig.suptitle(title, y=1.05, fontsize=15)
+        fig.suptitle(title, y=1.05)
     fig.tight_layout()
     return fig, axes, model_order
 
@@ -1947,7 +1952,6 @@ def annotate_tradeoff_highlights(
                                 xy=(getattr(row, metric), getattr(row, y_col)),
                                 xytext=offset,
                                 textcoords="offset points",
-                                fontsize=8,
                                 ha="left" if side == "right" else "right",
                                 va="center",
                                 bbox={
@@ -2013,7 +2017,7 @@ def annotate_tradeoff_highlights(
         bbox_to_anchor=(0.5, 1.03),
     )
     if title is not None:
-        fig.suptitle(title, y=1.08, fontsize=15)
+        fig.suptitle(title, y=1.08)
     fig.tight_layout()
     return fig
 
@@ -2196,7 +2200,7 @@ def make_conceptual_tradeoff_figure(
     ax.set_ylim(plot_ylim)
     ax.set_xlabel("Δ RSCC vs baseline")
     ax.set_ylabel("Geometry penalty")
-    ax.set_title(title, fontsize=15)
+    ax.set_title(title)
     fig.tight_layout()
     return fig
 
@@ -2284,7 +2288,6 @@ def make_spiral_figure(
             xy=(xe, ye),
             xytext=(6, 6),
             textcoords="offset points",
-            fontsize=9,
             fontweight="bold",
             color="#333333",
             bbox=dict(
@@ -2314,18 +2317,18 @@ def make_spiral_figure(
         ax.set_ylim(y_lo - y_pad, y_hi + y_pad)
 
     ax.set_yscale("symlog", linthresh=1.0)
-    ax.set_xlabel("Δ RSCC vs. baseline", fontsize=13)
-    ax.set_ylabel("∆ Geometry penalty vs. baseline", fontsize=13)
+    ax.set_xlabel("Δ RSCC vs. baseline")
+    ax.set_ylabel("∆ Geometry penalty vs. baseline")
 
     display = MODEL_DISPLAY.get(model_key, model_key)
     ax.set_title(
-        f"{display}: guidance strength tradeoff", fontsize=15, fontweight="bold"
+        f"{display}: guidance strength tradeoff", fontweight="bold"
     )
 
     sm = ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
     cbar = fig.colorbar(sm, ax=ax, shrink=0.75, pad=0.02)
-    cbar.set_label("Guidance weight", fontsize=12)
+    cbar.set_label("Guidance weight")
 
     fig.tight_layout()
     return fig
@@ -2527,8 +2530,8 @@ def make_aggregated_spiral_figure(
     ax.set_xlim(xlim if xlim is not None else (x_lo - x_pad, x_hi + x_pad))
     ax.set_ylim(ylim if ylim is not None else (y_lo - y_pad, y_hi + y_pad))
 
-    ax.set_xlabel("Δ RSCC vs. baseline (median)", fontsize=13)
-    ax.set_ylabel("∆ Geometry penalty vs. baseline (median)", fontsize=13)
+    ax.set_xlabel("Δ RSCC vs. baseline (median)")
+    ax.set_ylabel("∆ Geometry penalty vs. baseline (median)")
 
     optimal_handle = Line2D(
         [0], [0], marker="o", color="w",
@@ -2540,22 +2543,21 @@ def make_aggregated_spiral_figure(
         display = MODEL_DISPLAY.get(model_key, model_key)
         ax.set_title(
             f"{display}: aggregated guidance tradeoff",
-            fontsize=15, fontweight="bold",
+            fontweight="bold",
         )
         sm = ScalarMappable(cmap=flare_cmap, norm=gw_norm)
         sm.set_array([])
         cbar = fig.colorbar(sm, ax=ax, shrink=0.75, pad=0.02)
-        cbar.set_label("Guidance weight", fontsize=12)
+        cbar.set_label("Guidance weight")
         ax.legend(
             handles=[optimal_handle],
             loc="upper right",
             frameon=True, framealpha=0.9, edgecolor="none",
-            fontsize=10,
         )
     else:
         ax.set_title(
             "Aggregated guidance strength tradeoff",
-            fontsize=15, fontweight="bold",
+            fontweight="bold",
         )
         model_handles, model_labels = ax.get_legend_handles_labels()
         ax.legend(
@@ -2565,9 +2567,7 @@ def make_aggregated_spiral_figure(
             frameon=True,
             framealpha=0.9,
             edgecolor="none",
-            fontsize=11,
             title="Model",
-            title_fontsize=12,
         )
 
     fig.tight_layout()

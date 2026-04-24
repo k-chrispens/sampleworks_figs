@@ -107,7 +107,11 @@ def _(
     bond_stats = tag_path_dataframe(bond_stats, filename_col="model")
 
     _rscc = load_rscc("initial40results/rscc_results.csv")
-    rscc_all = _rscc.groupby(["protein", "model_name", "guidance_weight"]).last().reset_index()
+    # One RSCC per (protein, model, gw) by averaging across per-altloc-region rows.
+    rscc_all = (
+        _rscc.groupby(["protein", "model_name", "guidance_weight"], as_index=False)["rscc"]
+        .mean()
+    )
     rscc_all = add_simplified_metadata_columns(rscc_all)
     if nan_rscc_proteins:
         clashes_1 = clashes_1[~clashes_1["protein"].isin(nan_rscc_proteins)]

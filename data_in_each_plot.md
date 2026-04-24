@@ -24,7 +24,7 @@ Used by: clashscore, bond angle, and bond length data.
 
 ### 3. LDDT data (`load_lddt`)
 
-- The LDDT CSV is loaded with **no occupancy filter**. All rows are kept.
+- The LDDT CSV also has a string column `altloc_occupancies`; **only rows where `altloc_occupancies == "{'A': 0.5, 'B': 0.5}"` are kept** (same filter as RSCC).
 - Columns retained: `protein`, `model_name`, `guidance_weight`, `selection`, `occupancies`, `avg_silhouette`, `avg_silhouette_to_ref`.
 
 ### 4. Model name aliasing (all loaders)
@@ -157,9 +157,9 @@ Both loaders apply the global occupancy filter (`occ_spec == "0.5occA_0.5occB"`)
 | File | Key columns |
 |---|---|
 | `initial40results/rscc_results.csv` | `protein`, `model`, `method`, `altloc_occupancies`, `guidance_weight`, `rscc`, `selection`, `ensemble_size` |
-| `initial40results/lddt_results_w_baseline.csv` | `protein`, `model`, `method`, `guidance_weight`, `selection`, `occupancies`, `avg_silhouette`, `avg_silhouette_to_ref` |
+| `initial40results/lddt_results.csv` | `protein`, `model`, `method`, `altloc_occupancies`, `guidance_weight`, `selection`, `occupancies`, `avg_silhouette`, `avg_silhouette_to_ref` |
 
-**RSCC aggregation step:** After loading, RSCC rows are grouped by `(protein, model_name, guidance_weight)` and the **last row** per group is kept (via `.last()`). This collapses multiple selections/ensemble entries down to one row per (protein, model, gw) triple.
+**RSCC aggregation step:** After loading, RSCC rows are grouped by `(protein, model_name, guidance_weight)` and averaged across all per-altloc-region selections (`.mean()`), yielding one RSCC value per (protein, model, gw) triple.
 
 **LDDT baseline merge:** Baseline LDDT rows (`guidance_strength == "baseline"`) are extracted with their `avg_silhouette_to_ref` value, then merged back onto non-baseline rows by `(protein, model_name, selection_name)` to compute `delta_silhouette_to_ref = guided - baseline`.
 
