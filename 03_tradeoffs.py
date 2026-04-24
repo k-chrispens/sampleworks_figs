@@ -18,6 +18,7 @@ def _():
     import pandas as pd
     from analysis_helpers import (
         add_simplified_metadata_columns,
+        get_rscc_nan_proteins,
         load_and_tag_path_csv,
         tag_path_dataframe,
         load_rscc,
@@ -32,6 +33,7 @@ def _():
     return (
         MODEL_DISPLAY,
         add_simplified_metadata_columns,
+        get_rscc_nan_proteins,
         load_and_tag_path_csv,
         load_rscc,
         make_aggregated_spiral_figure,
@@ -71,8 +73,18 @@ def _(MODEL_DISPLAY, mo):
     selected_model = mo.ui.dropdown(options=_options, value="Boltz2-XRD", label="Model")
     auto_save = mo.ui.switch(label="Auto-save figures", value=False)
     save_all = mo.ui.switch(label="Save all models at once", value=False)
-    mo.hstack([selected_model, auto_save, save_all], justify="start", gap=1)
-    return auto_save, save_all, selected_model
+    exclude_nan_rscc = mo.ui.switch(label="Exclude NaN-RSCC proteins", value=False)
+    mo.hstack([selected_model, auto_save, save_all, exclude_nan_rscc], justify="start", gap=1)
+    return auto_save, exclude_nan_rscc, save_all, selected_model
+
+
+@app.cell
+def _(exclude_nan_rscc, get_rscc_nan_proteins):
+    nan_rscc_proteins = (
+        get_rscc_nan_proteins("initial40results/rscc_results.csv")
+        if exclude_nan_rscc.value else set()
+    )
+    return (nan_rscc_proteins,)
 
 
 @app.cell
@@ -80,6 +92,7 @@ def _(
     add_simplified_metadata_columns,
     load_and_tag_path_csv,
     load_rscc,
+    nan_rscc_proteins,
     pd,
     tag_path_dataframe,
 ):
@@ -96,6 +109,10 @@ def _(
     _rscc = load_rscc("initial40results/rscc_results.csv")
     rscc_all = _rscc.groupby(["protein", "model_name", "guidance_weight"]).last().reset_index()
     rscc_all = add_simplified_metadata_columns(rscc_all)
+    if nan_rscc_proteins:
+        clashes_1 = clashes_1[~clashes_1["protein"].isin(nan_rscc_proteins)]
+        bond_stats = bond_stats[~bond_stats["protein"].isin(nan_rscc_proteins)]
+        rscc_all = rscc_all[~rscc_all["protein"].isin(nan_rscc_proteins)]
     return bond_stats, clashes_1, rscc_all
 
 
@@ -208,7 +225,7 @@ def _(auto_save, make_aggregated_spiral_figure, mo, save_fig, tradeoff_df):
         tradeoff_df,
         model_order=["boltz2X-RAY", "boltz2MD", "protenix", "rf3"],
         ylim=[-1., 1000.],
-        xlim=[-0.05, 0.2],
+        xlim=[-0.05, 0.25],
     )
     if auto_save.value:
         save_fig(_fig, "20_aggregated_spiral_all.svg")

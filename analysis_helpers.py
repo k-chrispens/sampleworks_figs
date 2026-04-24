@@ -169,6 +169,7 @@ MODEL_NAME_ALIAS = {
     "boltz2_MD": "boltz2MD",
     "boltz2xray": "boltz2X-RAY",
     "boltz2md": "boltz2MD",
+    "rf3-fixed": "rf3",
 }
 
 NICE_XLABELS = {
@@ -435,6 +436,21 @@ def load_rscc(csv_path: str) -> pd.DataFrame:
     ]
     df = add_simplified_metadata_columns(df)
     return df
+
+
+def get_rscc_nan_proteins(
+    csv_path: str = "initial40results/rscc_results.csv",
+    models: tuple[str, ...] = ("boltz2X-RAY", "boltz2MD", "protenix"),
+) -> set[str]:
+    """Return proteins with at least one NaN ``rscc`` value for the given models.
+
+    Used by the notebooks' "Exclude NaN-RSCC proteins" toggle to produce a
+    consistent cross-notebook blacklist. Reuses ``load_rscc`` so the occupancy
+    filter and ``MODEL_NAME_ALIAS`` pass stay in sync.
+    """
+    df = load_rscc(csv_path)
+    mask = df["model_name"].isin(models) & df["rscc"].isna()
+    return set(df.loc[mask, "protein"].unique())
 
 
 def load_lddt(csv_path: str) -> pd.DataFrame:
@@ -2484,16 +2500,25 @@ def make_aggregated_spiral_figure(
     ax.set_yscale("symlog", linthresh=linthresh)
 
     if xlim is None or ylim is None:
+        agg_for_limits = (
+            agg[agg["model_name"].isin(models_to_draw)] if models_to_draw else agg
+        )
         all_x = np.concatenate([
-            agg["x_q1"].to_numpy(),
-            agg["x_q3"].to_numpy(),
+            agg_for_limits["x_q1"].to_numpy(dtype=float),
+            agg_for_limits["x_q3"].to_numpy(dtype=float),
             np.array([0.0]),
         ])
         all_y = np.concatenate([
-            agg["y_q1"].to_numpy(),
-            agg["y_q3"].to_numpy(),
+            agg_for_limits["y_q1"].to_numpy(dtype=float),
+            agg_for_limits["y_q3"].to_numpy(dtype=float),
             np.array([0.0]),
         ])
+        all_x = all_x[np.isfinite(all_x)]
+        all_y = all_y[np.isfinite(all_y)]
+        if all_x.size == 0:
+            all_x = np.array([0.0])
+        if all_y.size == 0:
+            all_y = np.array([0.0])
         x_lo, x_hi = float(all_x.min()), float(all_x.max())
         y_lo, y_hi = float(all_y.min()), float(all_y.max())
         x_pad = max(0.08 * (x_hi - x_lo), 0.02)
@@ -2536,7 +2561,7 @@ def make_aggregated_spiral_figure(
         ax.legend(
             handles=list(model_handles) + [optimal_handle],
             labels=list(model_labels) + ["Optimal guidance"],
-            loc="upper right",
+            loc="lower right",
             frameon=True,
             framealpha=0.9,
             edgecolor="none",

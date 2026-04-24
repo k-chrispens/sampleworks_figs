@@ -18,6 +18,7 @@ def _():
     from analysis_helpers import (
         add_simplified_metadata_columns,
         filter_by_model_group,
+        get_rscc_nan_proteins,
         load_rscc,
         load_lddt,
         load_classification,
@@ -47,6 +48,7 @@ def _():
         OPTIMAL_GW,
         add_simplified_metadata_columns,
         filter_by_model_group,
+        get_rscc_nan_proteins,
         load_classification,
         load_lddt,
         load_rscc,
@@ -112,13 +114,25 @@ def _(mo):
         label="KDE smoothing",
     )
     auto_save = mo.ui.switch(label="Auto-save figures", value=False)
-    mo.hstack([model_group, smoothing, auto_save], justify="start", gap=1)
-    return auto_save, model_group, smoothing
+    exclude_nan_rscc = mo.ui.switch(label="Exclude NaN-RSCC proteins", value=False)
+    mo.hstack([model_group, smoothing, auto_save, exclude_nan_rscc], justify="start", gap=1)
+    return auto_save, exclude_nan_rscc, model_group, smoothing
 
 
 @app.cell
-def _(add_simplified_metadata_columns, load_rscc):
+def _(exclude_nan_rscc, get_rscc_nan_proteins):
+    nan_rscc_proteins = (
+        get_rscc_nan_proteins("initial40results/rscc_results.csv")
+        if exclude_nan_rscc.value else set()
+    )
+    return (nan_rscc_proteins,)
+
+
+@app.cell
+def _(add_simplified_metadata_columns, load_rscc, nan_rscc_proteins):
     rscc = load_rscc("initial40results/rscc_results.csv")
+    if nan_rscc_proteins:
+        rscc = rscc[~rscc["protein"].isin(nan_rscc_proteins)]
     # For each group, keep only the longest selection string (the most inclusive
     # "all alternate residues" selection), then average RSCC across conformers.
     rscc["_sel_len"] = rscc["selection"].str.len()
@@ -134,12 +148,14 @@ def _(add_simplified_metadata_columns, load_rscc):
 
 
 @app.cell
-def _(add_simplified_metadata_columns, load_lddt):
+def _(add_simplified_metadata_columns, load_lddt, nan_rscc_proteins):
     # NOTE: rf3-fixed lDDT results are missing from the CSV. As a temporary
     # workaround, rf3-chiral-off rows were duplicated as rf3-fixed so that RF3
     # appears in lDDT plots. Replace with real rf3-fixed data when available.
     lddt_results = load_lddt("initial40results/lddt_results_w_baseline.csv")
     lddt_results_1 = add_simplified_metadata_columns(lddt_results)
+    if nan_rscc_proteins:
+        lddt_results_1 = lddt_results_1[~lddt_results_1["protein"].isin(nan_rscc_proteins)]
 
     _lddt_baseline = lddt_results_1.query('guidance_strength == "baseline"')[
         ["protein", "model_name", "selection_name", "avg_silhouette_to_ref"]
@@ -156,8 +172,10 @@ def _(add_simplified_metadata_columns, load_lddt):
 
 
 @app.cell
-def _(load_classification):
+def _(load_classification, nan_rscc_proteins):
     classification_df = load_classification("classify_altloc_regions.csv")
+    if nan_rscc_proteins:
+        classification_df = classification_df[~classification_df["protein"].isin(nan_rscc_proteins)]
     return (classification_df,)
 
 
@@ -667,7 +685,7 @@ def _(
         save_fig(fig_10, "10_lddt_to_ref_all_guidance_distribution.png")
         for _group, _tag in [(MODELS_PROTENIX_GROUP, "protenix_alts"), (MODELS_RF3_GROUP, "rf3_alts")]:
             _fig = make_ridge_plot(
-                _all_lddt.query("model_name in @_group"),
+                _all_lddt[_all_lddt["model_name"].isin(_group)],
                 "avg_silhouette_to_ref", smoothing=smoothing.value,
             )
             save_fig(_fig, f"10_lddt_to_ref_all_guidance_distribution_{_tag}.png")
@@ -699,7 +717,7 @@ def _(
         save_fig(fig_11, "11_delta_lddt_to_ref_distribution.png")
         for _group, _tag in [(MODELS_PROTENIX_GROUP, "protenix_alts"), (MODELS_RF3_GROUP, "rf3_alts")]:
             _fig = make_ridge_plot(
-                lddt_merged.query("model_name in @_group"),
+                lddt_merged[lddt_merged["model_name"].isin(_group)],
                 "delta_silhouette_to_ref", is_delta=True,
             )
             save_fig(_fig, f"11_delta_lddt_to_ref_distribution_{_tag}.png")

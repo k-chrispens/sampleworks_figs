@@ -16,6 +16,7 @@ def _():
     import pandas as pd
     from analysis_helpers import (
         filter_by_model_group,
+        get_rscc_nan_proteins,
         load_and_tag_path_csv,
         tag_path_dataframe,
         make_ridge_plot,
@@ -25,6 +26,7 @@ def _():
 
     return (
         filter_by_model_group,
+        get_rscc_nan_proteins,
         load_and_tag_path_csv,
         make_delta_frame,
         make_ridge_plot,
@@ -62,12 +64,22 @@ def _(mo):
         label="KDE smoothing",
     )
     auto_save = mo.ui.switch(label="Auto-save figures", value=False)
-    mo.hstack([model_group, smoothing, auto_save], justify="start", gap=1)
-    return auto_save, model_group, smoothing
+    exclude_nan_rscc = mo.ui.switch(label="Exclude NaN-RSCC proteins", value=False)
+    mo.hstack([model_group, smoothing, auto_save, exclude_nan_rscc], justify="start", gap=1)
+    return auto_save, exclude_nan_rscc, model_group, smoothing
 
 
 @app.cell
-def _(load_and_tag_path_csv, pd, tag_path_dataframe):
+def _(exclude_nan_rscc, get_rscc_nan_proteins):
+    nan_rscc_proteins = (
+        get_rscc_nan_proteins("initial40results/rscc_results.csv")
+        if exclude_nan_rscc.value else set()
+    )
+    return (nan_rscc_proteins,)
+
+
+@app.cell
+def _(load_and_tag_path_csv, nan_rscc_proteins, pd, tag_path_dataframe):
     clashes = load_and_tag_path_csv(
         "initial40results/clashscore_metrics.csv",
         filename_col="model_name",
@@ -79,6 +91,9 @@ def _(load_and_tag_path_csv, pd, tag_path_dataframe):
         _bond_lengths, on=["model", "model_n"], suffixes=["_bond_angles", "_bond_lengths"]
     )
     bond_stats = tag_path_dataframe(bond_stats, filename_col="model")
+    if nan_rscc_proteins:
+        clashes = clashes[~clashes["protein"].isin(nan_rscc_proteins)]
+        bond_stats = bond_stats[~bond_stats["protein"].isin(nan_rscc_proteins)]
     return bond_stats, clashes
 
 
