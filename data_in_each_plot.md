@@ -297,7 +297,13 @@ Both loaders apply the global occupancy filter (`occ_spec == "0.5occA_0.5occB"`)
 
 ### RSCC Scatter Plots — Baseline vs Optimal Guidance (per model)
 
-**What is plotted:** Scatter plot with one point per protein. X-axis = baseline RSCC, Y-axis = RSCC at optimal guidance weight. Diagonal line at y = x. Top-3 most-improved proteins highlighted green, any decreased proteins highlighted red. Marginal KDE density panel below.
+**What is plotted:** Scatter plot with one point per **(protein, selection)** pair for the selected model. X-axis = baseline RSCC, Y-axis = RSCC at the model's optimal guidance weight. Diagonal `y = x` spans the full axis range. Both axes fixed to `[0, 1]`. Marginal KDE density panel below.
+
+**Highlighting** (capped so the figure stays readable):
+- Top-3 most-improved selections: green ring.
+- Top-3 most-decreased selections (most-negative `delta_rscc`): red ring.
+- Loop-of-interest selections: blue ring. Currently `6B8X 181-183` and `5MHX 162-164` (the altloc-resolved residues inside each protein's most flexible large loop).
+- Labels use the compact form `"<PDB> <start>-<end>"`.
 
 **Optimal guidance weights:**
 
@@ -313,34 +319,48 @@ Both loaders apply the global occupancy filter (`occ_spec == "0.5occA_0.5occB"`)
 | rf3-chiral-off | 0.01 |
 
 **Data construction:**
-1. Baseline: all rows with `guidance_weight == 0.0`, extracting `(protein, model_name, rscc)` renamed to `rscc_baseline`.
-2. Optimal: for each model, rows at that model's optimal gw, extracting `rscc` renamed to `rscc_optimal`.
-3. Merged on `(protein, model_name)`.
-4. `delta_rscc = rscc_optimal - rscc_baseline`.
+1. Load RSCC filtered to `selection_name != "all altloc"` (drop chain-level rows).
+2. Baseline: rows with `guidance_weight == 0.0`, keeping `(protein, selection, model_name, rscc)` renamed to `rscc_baseline`.
+3. Optimal: for each model, rows at that model's optimal gw, same columns renamed to `rscc_optimal`.
+4. Merge on `(protein, selection, model_name)`.
+5. `delta_rscc = rscc_optimal - rscc_baseline`.
+6. Add `label = "<PDB> <start>-<end>"` for annotations.
 
 **Data included:**
-- One point per protein for the selected model.
-- Only proteins that have BOTH a baseline and an optimal-gw measurement for that model.
+- One point per (protein, selection) pair for the selected model, requiring both baseline and optimal-gw measurements.
 
 **What is excluded:**
+- `selection_name == "all altloc"` (chain-level rows).
 - All occupancy configurations other than 50/50.
 - All guidance weights other than 0.0 (baseline) and the model's designated optimal weight.
-- Proteins missing from either the baseline or optimal slice.
+- (protein, selection) pairs missing from either slice.
 
 ---
 
 ### Aggregated RSCC Scatter — All Models Combined
 
-**What is plotted:** Scatter with one point per protein. Baseline and optimal RSCC are collapsed across all 8 models using **median**. Error bars show IQR (Q1–Q3) across models. Diagonal y = x line. Marginal KDE.
+**What is plotted:** Scatter with one point per **(protein, selection)** pair. Baseline and optimal RSCC are collapsed across main models using the **median** (no error bars; per-model spread is shown by the per-model RSCC scatter figures). Diagonal y = x line. Marginal KDE. Both axes fixed to `[0, 1]` so the figure is directly comparable across runs and model groups.
+
+**Data construction:**
+1. Load RSCC filtered to `selection_name != "all altloc"` (drop the chain-level rows).
+2. Baseline: rows with `guidance_weight == 0.0` and `model_name not in MODELS_ALT`, keeping `(protein, selection, model_name, rscc)`.
+3. Optimal: rows at each main model's optimal gw (from `OPTIMAL_GW`), same columns.
+4. Merge on `(protein, selection, model_name)`, then group by `(protein, selection)` and take median / count across models.
+
+**Highlighting** (capped so the figure stays readable):
+- Top-3 most-improved (protein, selection) pairs: green ring.
+- Top-3 most-decreased pairs (most-negative delta): red ring.
+- Loop-of-interest pairs: blue ring. Currently: `6B8X 181-183` (altloc-resolved residues inside the most flexible large loop `chain A and resi 178-193`, backbone lDDT 0.676) and `5MHX 162-164` (altloc-resolved residues inside the only large loop `chain A and resi 158-167`, backbone lDDT 0.582).
+- Labels use the compact form `"<PDB> <start>-<end>"` (e.g., `6B8X 181-183`).
 
 **Data included:**
-- The per-model `rscc_scatter_df` (baseline vs optimal for each model), grouped by protein.
-- Statistics: median, Q1, Q3 of both `rscc_baseline` and `rscc_optimal` across models.
-- **Only proteins present in >= 3 models** (`n >= 3` filter).
+- One point per (protein, selection) pair that has `n >= 3` main models contributing both a baseline and an optimal measurement.
 
 **What is excluded:**
-- Proteins appearing in fewer than 3 models.
-- Everything excluded at the per-model scatter level (non-50/50 occupancies, non-optimal gw, etc.).
+- Alternative models (`MODELS_ALT`).
+- `selection_name == "all altloc"` (chain-level rows).
+- (protein, selection) pairs with fewer than 3 main models.
+- Everything excluded at the upstream RSCC loader level (non-50/50 occupancies, etc.).
 
 ---
 
@@ -366,10 +386,10 @@ Both loaders apply the global occupancy filter (`occ_spec == "0.5occA_0.5occB"`)
 
 ### Aggregated RSCC vs LDDT Scatter — All Models Combined
 
-**What is plotted:** Same cross-metric scatter, collapsed across models. Median +/- IQR error bars. Pearson r.
+**What is plotted:** Same cross-metric scatter, collapsed across models using the **median** (no error bars; per-model spread is shown by the per-model cross-metric scatter figures). Pearson r.
 
 **Data included:**
-- The per-model `cross_metric_df`, grouped by protein. Median and IQR across models.
+- The per-model `cross_metric_df`, grouped by protein. Median across models.
 - Only proteins with `n >= 3` models.
 
 **What is excluded:**
@@ -380,19 +400,24 @@ Both loaders apply the global occupancy filter (`occ_spec == "0.5occA_0.5occB"`)
 
 ### Aggregated LDDT Scatter — All Models Combined
 
-**What is plotted:** Scatter with one point per protein. Baseline and optimally-guided LDDT silhouette-to-ref collapsed across models (median +/- IQR). Diagonal y = x. Marginal KDE.
+**What is plotted:** Scatter with one point per **(protein, selection)** pair. Baseline and optimally-guided LDDT silhouette-to-ref collapsed across main models using the **median** (no error bars; per-model spread is shown by the per-model LDDT scatter figures). Diagonal y = x. Marginal KDE. Both axes fixed to `[0, 1]` for cross-figure comparability.
 
 **Data construction:**
 1. LDDT is filtered to `selection_name != 'all altloc'`.
-2. Baseline: rows at `guidance_weight == 0.0`, `avg_silhouette_to_ref` averaged across selections per (protein, model).
-3. Optimal: rows at each model's optimal gw, same averaging.
-4. Merged per (protein, model), then aggregated across models per protein (median, Q1, Q3).
-5. Proteins with `n >= 3` models kept.
+2. Baseline: rows at `guidance_weight == 0.0` and `model_name not in MODELS_ALT`, keeping `(protein, selection, model_name, avg_silhouette_to_ref)`.
+3. Optimal: rows at each main model's optimal gw (from `OPTIMAL_GW`), same columns.
+4. Merge on `(protein, selection, model_name)`, then group by `(protein, selection)` and take median / count across models.
+5. (protein, selection) pairs with `n >= 3` models kept.
+
+**Highlighting:** Same as the Aggregated RSCC Scatter — top-3 improved (green), top-3 most-decreased (red), `6B8X 181-183` and `5MHX 162-164` (blue). Labels use `"<PDB> <start>-<end>"`.
 
 **What is excluded:**
+- Alternative models (`MODELS_ALT`).
 - LDDT rows with `selection_name == 'all altloc'`.
-- Non-baseline/non-optimal guidance weights.
-- Proteins in fewer than 3 models.
+- Non-baseline / non-optimal guidance weights.
+- (protein, selection) pairs with fewer than 3 main models.
+
+**Note:** The previous version of this figure averaged `avg_silhouette_to_ref` across selections per (protein, model) before aggregating across models. That collapse step has been removed so each residue-level selection becomes its own point.
 
 ---
 

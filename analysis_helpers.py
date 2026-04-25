@@ -614,13 +614,19 @@ def make_scatter_comparison(
     delta_col: str | None = None,
     draw_diagonal: bool = False,
     highlight_top_n: int = 3,
-    highlight_decreased: bool = True,
+    highlight_decreased: bool | int = True,
     highlight_proteins: list[str] | None = None,
+    label_col: str = "protein",
     label_all: bool = False,
     draw_regression: bool = False,
     show_correlation: bool = False,
     equal_aspect: bool = True,
     show_marginal_kde: bool = False,
+    xlim: tuple[float, float] | None = None,
+    ylim: tuple[float, float] | None = None,
+    residual: bool = False,
+    label_top_n: int = 5,
+    label_bottom_n: int = 5,
 ) -> plt.Figure:
     """Generic scatter plot comparing two metrics for a single model.
 
@@ -642,19 +648,38 @@ def make_scatter_comparison(
         no delta-based highlighting is applied.
     draw_diagonal : bool
         Draw a dashed y = x reference line (useful when both axes share a
-        scale, e.g. baseline vs guided RSCC).
+        scale, e.g. baseline vs guided RSCC). Ignored when ``residual=True``.
     highlight_top_n : int
         Number of most-improved points to highlight (requires *delta_col*).
-    highlight_decreased : bool
-        Whether to highlight points where *delta_col* < 0.
+    highlight_decreased : bool | int
+        ``True`` highlights every point with ``delta_col`` < 0. An integer
+        ``n`` highlights only the ``n`` most-decreased points (smallest
+        ``delta_col`` values below zero). ``False`` disables the highlight.
+    label_col : str
+        Column to use for the text labels and ``highlight_proteins`` matching.
+        Defaults to ``"protein"`` — pass ``"label"`` (or similar) when
+        plotting per-(protein, selection) data.
     label_all : bool
-        Annotate every point with its uppercased protein name.
+        Annotate every point with its uppercased label.
     draw_regression : bool
         Overlay an OLS best-fit line.
     show_correlation : bool
         Display Pearson *r* in a text box (requires >= 5 data points).
     equal_aspect : bool
-        If *True*, enforce equal axis scaling.
+        If *True*, enforce equal axis scaling. Forced ``False`` when
+        ``residual=True`` because residual y has a different scale than x.
+    residual : bool
+        If *True*, plot ``y_col - x_col`` on the y-axis instead of ``y_col``,
+        replace the y = x diagonal with a y = 0 horizontal reference and a
+        y = 1 − x ceiling envelope, and label only the ``label_top_n`` most
+        improved + ``label_bottom_n`` most decreased points plus any
+        ``highlight_proteins`` matches. Marker styling switches to small,
+        un-edged, alpha=0.3 dots. Single-row data has no error to propagate;
+        the propagation rule sqrt(sd_g^2 + sd_b^2) applies in
+        :func:`make_aggregated_scatter`.
+    label_top_n, label_bottom_n : int
+        Active only when ``residual=True``: number of extreme points (by
+        improvement) to label at top and bottom respectively.
 
     Returns
     -------
@@ -675,74 +700,177 @@ def make_scatter_comparison(
         fig, ax = plt.subplots(figsize=(_w, _w))
         ax_kde = None
 
-    x, y = df[x_col], df[y_col]
+    x_raw = df[x_col]
+    y_raw = df[y_col]
+    if residual:
+        # Residual = guided − baseline (improvement over baseline)
+        y_plot = y_raw - x_raw
+        # Override y-label with residual phrasing unless caller passed
+        # a custom one that already speaks of "Improvement".
+        if "Improvement" not in y_label:
+            y_label_used = "Improvement (Guided − Baseline RSCC)"
+        else:
+            y_label_used = y_label
+        # Residual delta is the y-value itself; precompute for highlight selection
+        _delta_for_highlight = y_plot
+        # Equal aspect doesn't make sense across two different scales
+        equal_aspect = False
+        # Ignore the diagonal flag; residual mode owns the reference geometry
+        draw_diagonal_used = False
+    else:
+        y_plot = y_raw
+        y_label_used = y_label
+        _delta_for_highlight = df[delta_col] if (delta_col is not None and delta_col in df.columns) else None
+        draw_diagonal_used = draw_diagonal
 
-    # Reference diagonal
-    if draw_diagonal:
-        lo = min(x.min(), y.min()) - 0.02
-        hi = max(x.max(), y.max()) + 0.02
+    x = x_raw
+
+    # Reference geometry
+    if draw_diagonal_used:
+        lo = min(x.min(), y_plot.min()) - 0.02
+        hi = max(x.max(), y_plot.max()) + 0.02
+        if xlim is not None:
+            lo = min(lo, xlim[0])
+            hi = max(hi, xlim[1])
+        if ylim is not None:
+            lo = min(lo, ylim[0])
+            hi = max(hi, ylim[1])
         ax.plot([lo, hi], [lo, hi], ls="--", color="#AAAAAA", lw=1, zorder=1)
 
-    # All points
-    ax.scatter(x, y, c=color, s=40, alpha=0.7, edgecolors="white", linewidths=0.5, zorder=2)
+    if residual:
+        # y = 0 horizontal reference (replaces y = x diagonal); same dashed style.
+        _x_lo = float(np.nanmin(x)) if xlim is None else xlim[0]
+        _x_hi = float(np.nanmax(x)) if xlim is None else xlim[1]
+        # Pad a bit so the line spans visible range
+        _x_lo = min(_x_lo, 0.0) - 0.02
+        _x_hi = max(_x_hi, 1.0) + 0.02
+        ax.axhline(0.0, ls="--", color="#AAAAAA", lw=1, zorder=1)
+        # Upper envelope y = 1 - x — guided cannot exceed 1.0, so improvement is bounded.
+        _xs = np.linspace(_x_lo, _x_hi, 100)
+        ax.plot(_xs, 1.0 - _xs, ls="--", color="#AAAAAA", lw=0.8, zorder=1)
+
+    # All points — styling depends on mode
+    if residual:
+        ax.scatter(x, y_plot, c=color, s=14, alpha=0.3, edgecolors="none", zorder=2)
+    else:
+        ax.scatter(x, y_plot, c=color, s=40, alpha=0.7, edgecolors="white", linewidths=0.5, zorder=2)
 
     # Collect every label we want to draw; adjust_text will reposition them
     # all together at the end to avoid mutual overlaps.
     texts: list = []
 
-    # Delta-based highlighting
-    if delta_col is not None and delta_col in df.columns:
-        if highlight_decreased:
-            dec = df[df[delta_col] < 0]
-            if not dec.empty:
-                ax.scatter(
-                    dec[x_col], dec[y_col],
-                    facecolors=color, s=60, edgecolors="#D32F2F", linewidths=1.5, zorder=3,
-                )
-                for _, r in dec.iterrows():
-                    texts.append(ax.text(
-                        r[x_col], r[y_col], r["protein"].upper(),
-                        color="#333333", zorder=10,
-                    ))
+    if residual:
+        # In residual mode: label exactly top-N + bottom-N by improvement
+        # plus any explicit highlight matches. Preserve red/green rings.
+        _has_label_col = label_col in df.columns
+        _seen_idx: set = set()
 
-        if highlight_top_n > 0:
-            imp = df.nlargest(highlight_top_n, delta_col)
-            imp = imp[imp[delta_col] > 0]
+        if label_top_n > 0 and _delta_for_highlight is not None:
+            imp = df.assign(_d=_delta_for_highlight).nlargest(label_top_n, "_d")
+            imp = imp[imp["_d"] > 0]
             if not imp.empty:
                 ax.scatter(
-                    imp[x_col], imp[y_col],
-                    facecolors=color, s=60, edgecolors="#2E7D32", linewidths=1.5, zorder=3,
+                    imp[x_col], imp[y_col] - imp[x_col],
+                    facecolors=color, s=24, edgecolors="#2E7D32", linewidths=1.2, zorder=3,
                 )
-                for _, r in imp.iterrows():
+                if _has_label_col:
+                    for _, r in imp.iterrows():
+                        _seen_idx.add(r.name)
+                        texts.append(ax.text(
+                            r[x_col], r[y_col] - r[x_col], str(r[label_col]).upper(),
+                            color="#333333", zorder=10,
+                        ))
+
+        if label_bottom_n > 0 and _delta_for_highlight is not None:
+            dec = df.assign(_d=_delta_for_highlight).nsmallest(label_bottom_n, "_d")
+            dec = dec[dec["_d"] < 0]
+            if not dec.empty:
+                ax.scatter(
+                    dec[x_col], dec[y_col] - dec[x_col],
+                    facecolors=color, s=24, edgecolors="#D32F2F", linewidths=1.2, zorder=3,
+                )
+                if _has_label_col:
+                    for _, r in dec.iterrows():
+                        _seen_idx.add(r.name)
+                        texts.append(ax.text(
+                            r[x_col], r[y_col] - r[x_col], str(r[label_col]).upper(),
+                            color="#333333", zorder=10,
+                        ))
+
+        if highlight_proteins and _has_label_col:
+            wanted = {p.lower() for p in highlight_proteins}
+            picked = df[df[label_col].str.lower().isin(wanted)]
+            picked = picked[~picked.index.isin(_seen_idx)]
+            if not picked.empty:
+                ax.scatter(
+                    picked[x_col], picked[y_col] - picked[x_col],
+                    facecolors=color, s=24, edgecolors="#1565C0", linewidths=1.2, zorder=4,
+                )
+                for _, r in picked.iterrows():
                     texts.append(ax.text(
-                        r[x_col], r[y_col], r["protein"].upper(),
+                        r[x_col], r[y_col] - r[x_col], str(r[label_col]).upper(),
                         color="#333333", zorder=10,
                     ))
 
-    if highlight_proteins:
-        wanted = {p.lower() for p in highlight_proteins}
-        picked = df[df["protein"].str.lower().isin(wanted)]
-        if not picked.empty:
-            ax.scatter(
-                picked[x_col], picked[y_col],
-                facecolors=color, s=60, edgecolors="#1565C0", linewidths=1.5, zorder=4,
-            )
-            for _, r in picked.iterrows():
+    else:
+        # Legacy (non-residual) delta-based highlighting
+        if delta_col is not None and delta_col in df.columns:
+            if highlight_decreased:
+                dec = df[df[delta_col] < 0]
+                if isinstance(highlight_decreased, bool):
+                    pass  # keep all decreased
+                else:
+                    # Integer count: keep only the N most-decreased rows.
+                    dec = dec.nsmallest(int(highlight_decreased), delta_col)
+                if not dec.empty:
+                    ax.scatter(
+                        dec[x_col], dec[y_col],
+                        facecolors=color, s=60, edgecolors="#D32F2F", linewidths=1.5, zorder=3,
+                    )
+                    for _, r in dec.iterrows():
+                        texts.append(ax.text(
+                            r[x_col], r[y_col], str(r[label_col]).upper(),
+                            color="#333333", zorder=10,
+                        ))
+
+            if highlight_top_n > 0:
+                imp = df.nlargest(highlight_top_n, delta_col)
+                imp = imp[imp[delta_col] > 0]
+                if not imp.empty:
+                    ax.scatter(
+                        imp[x_col], imp[y_col],
+                        facecolors=color, s=60, edgecolors="#2E7D32", linewidths=1.5, zorder=3,
+                    )
+                    for _, r in imp.iterrows():
+                        texts.append(ax.text(
+                            r[x_col], r[y_col], str(r[label_col]).upper(),
+                            color="#333333", zorder=10,
+                        ))
+
+        if highlight_proteins and label_col in df.columns:
+            wanted = {p.lower() for p in highlight_proteins}
+            picked = df[df[label_col].str.lower().isin(wanted)]
+            if not picked.empty:
+                ax.scatter(
+                    picked[x_col], picked[y_col],
+                    facecolors=color, s=60, edgecolors="#1565C0", linewidths=1.5, zorder=4,
+                )
+                for _, r in picked.iterrows():
+                    texts.append(ax.text(
+                        r[x_col], r[y_col], str(r[label_col]).upper(),
+                        color="#333333", zorder=10,
+                    ))
+
+        # Label every point (when no delta highlighting)
+        if label_all and delta_col is None:
+            for _, r in df.iterrows():
                 texts.append(ax.text(
-                    r[x_col], r[y_col], r["protein"].upper(),
+                    r[x_col], r[y_col], str(r[label_col]).upper(),
                     color="#333333", zorder=10,
                 ))
 
-    # Label every point (when no delta highlighting)
-    if label_all and delta_col is None:
-        for _, r in df.iterrows():
-            texts.append(ax.text(
-                r[x_col], r[y_col], r["protein"].upper(),
-                color="#333333", zorder=10,
-            ))
-
     # Drop NaNs for regression / correlation (polyfit SVD fails on NaN)
-    _finite = np.isfinite(x) & np.isfinite(y)
+    _finite = np.isfinite(x) & np.isfinite(y_plot)
     _n_dropped = int((~_finite).sum())
     if _n_dropped > 0:
         warnings.warn(
@@ -750,7 +878,7 @@ def make_scatter_comparison(
             f"{len(df)} rows with NaN in '{x_col}' or '{y_col}' before regression.",
             stacklevel=2,
         )
-    _xf, _yf = x[_finite], y[_finite]
+    _xf, _yf = x[_finite], y_plot[_finite]
 
     # Regression line
     if draw_regression and len(_xf) >= 2 and _xf.min() != _xf.max():
@@ -767,15 +895,18 @@ def make_scatter_comparison(
             bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#CCCCCC", alpha=0.8),
         )
 
-    ax.set_ylabel(y_label)
-    ax.set_title(title)
+    ax.set_ylabel(y_label_used)
+    ax.set_title(title, pad=14)
 
     if ax_kde is not None:
         plt.setp(ax.get_xticklabels(), visible=False)
         ax.tick_params(axis="x", length=0)
-        sns.kdeplot(x, ax=ax_kde, color="#888888", fill=True, alpha=0.3,
+        # Marginal KDE always operates on the baseline x-axis with raw
+        # (un-residualised) baseline and guided values; this stays valid in
+        # residual mode because both metrics share the [0, 1] axis.
+        sns.kdeplot(x_raw, ax=ax_kde, color="#888888", fill=True, alpha=0.3,
                     label="Baseline", lw=1.5, bw_adjust=0.5)
-        sns.kdeplot(y, ax=ax_kde, color=color, fill=True, alpha=0.3,
+        sns.kdeplot(y_raw, ax=ax_kde, color=color, fill=True, alpha=0.3,
                     label="Guided", lw=1.5, bw_adjust=0.5)
         ax_kde.set_xlabel(x_label)
         ax_kde.set_ylabel("Density")
@@ -784,37 +915,66 @@ def make_scatter_comparison(
     else:
         ax.set_xlabel(x_label)
 
+    _fixed_limits = xlim is not None or ylim is not None
     if equal_aspect:
-        ax.set_aspect("equal", adjustable="datalim")
+        ax.set_aspect("equal", adjustable="box" if _fixed_limits else "datalim")
+    if equal_aspect and draw_diagonal_used and not _fixed_limits:
         pad = 0.01
         ax.set_xlim(lo + pad, hi)
         ax.set_ylim(lo + pad, hi)
+    if xlim is not None:
+        ax.set_xlim(xlim)
+    if ylim is not None:
+        ax.set_ylim(ylim)
+
+    if residual:
+        # X is the baseline RSCC range (pinned to [0, 1]); y has its upper
+        # bound pinned at 1 to expose the y = 1 - x ceiling, and a tight
+        # lower bound so decreased points (y < 0) remain visible.
+        if xlim is None:
+            ax.set_xlim(0.0, 1.0)
+        if ylim is None:
+            _yvals = y_plot[np.isfinite(y_plot)]
+            if len(_yvals) > 0:
+                _y_lo = float(min(0.0, np.nanmin(_yvals))) - 0.02
+            else:
+                _y_lo = -0.05
+            ax.set_ylim(_y_lo, 1.0)
 
     if texts:
-        _n = len(texts)
-        if _n > 15:
-            adjust_text(
-                texts, ax=ax,
-                arrowprops=dict(arrowstyle="-", color="#888888", lw=0.5),
-                expand=(1.5, 1.8),
-                force_text=(1.0, 1.5),
-                force_static=(0.8, 1.2),
-                force_explode=(0.5, 0.8),
-                ensure_inside_axes=False,
-                max_move=(40, 40),
-                time_lim=10,
+        try:
+            _n = len(texts)
+            if _n > 15:
+                adjust_text(
+                    texts, ax=ax,
+                    arrowprops=dict(arrowstyle="-", color="#888888", lw=0.5),
+                    expand=(1.5, 1.8),
+                    force_text=(1.0, 1.5),
+                    force_static=(0.8, 1.2),
+                    force_explode=(0.5, 0.8),
+                    ensure_inside_axes=False,
+                    max_move=(40, 40),
+                    time_lim=10,
+                )
+            else:
+                adjust_text(
+                    texts, ax=ax,
+                    arrowprops=dict(arrowstyle="-", color="#888888", lw=0.5),
+                    expand=(1.3, 1.5),
+                    force_text=(0.5, 0.8),
+                    force_static=(0.5, 0.8),
+                    force_explode=(0.3, 0.6),
+                    ensure_inside_axes=True,
+                    max_move=(20, 20),
+                )
+        except Exception as exc:
+            warnings.warn(
+                f"make_scatter_comparison({display_name}): adjust_text failed "
+                f"({exc}); dropping labels rather than overlapping.",
+                stacklevel=2,
             )
-        else:
-            adjust_text(
-                texts, ax=ax,
-                arrowprops=dict(arrowstyle="-", color="#888888", lw=0.5),
-                expand=(1.3, 1.5),
-                force_text=(0.5, 0.8),
-                force_static=(0.5, 0.8),
-                force_explode=(0.3, 0.6),
-                ensure_inside_axes=True,
-                max_move=(20, 20),
-            )
+            for t in texts:
+                t.remove()
 
     fig.tight_layout()
     return fig
@@ -825,21 +985,30 @@ def make_rscc_scatter(
     model_name: str,
     optimal_gw: float,
 ) -> plt.Figure:
-    """Create a scatter plot of baseline vs optimally-guided RSCC for one model."""
+    """Per-model residual plot: baseline RSCC vs improvement (guided − baseline).
+
+    ``df`` must contain a ``label`` column formatted ``"<PDB> <start>-<end>"``
+    as produced by the RSCC scatter cell in ``02_fit_quality.py``. Only the
+    top-5 improved + bottom-5 decreased selections (plus any
+    ``highlight_proteins``) are labeled to keep the figure readable.
+    """
     return make_scatter_comparison(
         df,
         model_name,
         x_col="rscc_baseline",
         y_col="rscc_optimal",
         x_label="Baseline RSCC",
-        y_label=f"RSCC at gw={optimal_gw}",
+        y_label="Improvement (Guided − Baseline RSCC)",
         title=f"{MODEL_DISPLAY.get(model_name, model_name)}: RSCC Improvement Over Baseline",
         delta_col="delta_rscc",
-        draw_diagonal=True,
-        highlight_top_n=3,
-        highlight_decreased=True,
-        highlight_proteins=["6b8x", "5mhx"],
+        # Altloc-resolved core of the most flexible large loop for each protein.
+        highlight_proteins=["6B8X 181-183", "5MHX 162-164"],
+        label_col="label",
         show_marginal_kde=True,
+        xlim=(0.0, 1.0),
+        residual=True,
+        label_top_n=5,
+        label_bottom_n=5,
     )
 
 
@@ -853,84 +1022,210 @@ def make_classified_scatter(
     x_label: str = "Baseline RSCC",
     y_label: str | None = None,
     title: str | None = None,
-    draw_diagonal: bool = True,
+    draw_diagonal: bool = True,  # ignored — residual mode owns the geometry
     show_correlation: bool = False,
-    equal_aspect: bool = True,
+    equal_aspect: bool = True,  # ignored
 ) -> plt.Figure:
-    """Scatter plot coloured by conformational-change classification.
+    """Per-class small-multiples residual plot.
 
-    Each point is one (protein, selection) pair for a single model.
+    One subplot per classification, sharing x and y axes. In each subplot,
+    the full pooled dataset is plotted in light gray as a context shadow,
+    and only the points belonging to that subplot's class are overlaid in
+    the class colour. Each subplot title is ``"<class> (n=<count>)"``.
+    The y-axis is the residual ``y_col − x_col`` (improvement over baseline).
+    Every subplot shows the y = 0 reference and the y = 1 − x ceiling.
     """
-    from matplotlib.lines import Line2D
-
     display_name = MODEL_DISPLAY.get(model_name, model_name)
     if title is None:
-        title = f"{display_name}: RSCC by Conformation Type"
+        title = f"{display_name}: RSCC Improvement by Conformation Type"
     if y_label is None:
-        y_label = "Guided RSCC"
+        y_label = "Improvement (Guided − Baseline RSCC)"
 
-    fig, ax = plt.subplots(figsize=(6, 6))
+    classes = [c for c in CLASSIFICATION_ORDER if c in set(df[class_col])]
+    n_classes = max(1, len(classes))
+    n_cols = min(4, n_classes)
+    n_rows = int(np.ceil(n_classes / n_cols))
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        figsize=(3.4 * n_cols, 3.6 * n_rows),
+        sharex=True, sharey=True,
+        squeeze=False,
+    )
+    flat_axes = axes.flatten()
 
-    x, y = df[x_col], df[y_col]
+    x_all = df[x_col].to_numpy()
+    y_all_resid = (df[y_col] - df[x_col]).to_numpy()
 
-    if draw_diagonal:
-        lo = min(x.min(), y.min()) - 0.02
-        hi = max(x.max(), y.max()) + 0.02
-        ax.plot([lo, hi], [lo, hi], ls="--", color="#AAAAAA", lw=1, zorder=1)
+    # X is pinned to [0, 1]; y upper bound pinned at 1 (the y = 1 - x
+    # ceiling), lower bound tight to the data so decreased points stay
+    # visible.
+    x_lo, x_hi = 0.0, 1.0
+    y_hi = 1.0
+    _finite = np.isfinite(y_all_resid)
+    if _finite.any():
+        y_lo = float(min(0.0, np.nanmin(y_all_resid[_finite]))) - 0.02
+    else:
+        y_lo = -0.05
+    _xs = np.linspace(x_lo, x_hi, 100)
 
-    handles = []
-    for cls in CLASSIFICATION_ORDER:
+    for ax_i, cls in zip(flat_axes, classes):
         mask = df[class_col] == cls
-        if not mask.any():
-            continue
+        # Light-gray context shadow: full pooled dataset
+        ax_i.scatter(
+            x_all, y_all_resid,
+            color="lightgray", alpha=0.25,
+            s=14, edgecolors="none", zorder=1,
+        )
+        # Class points on top
+        sub_x = df.loc[mask, x_col].to_numpy()
+        sub_y = (df.loc[mask, y_col] - df.loc[mask, x_col]).to_numpy()
         color = CLASSIFICATION_PALETTE[cls]
-        ax.scatter(
-            df.loc[mask, x_col],
-            df.loc[mask, y_col],
-            c=color,
-            s=45,
-            alpha=0.75,
-            edgecolors="white",
-            linewidths=0.5,
-            zorder=2,
+        ax_i.scatter(
+            sub_x, sub_y,
+            c=color, alpha=0.7,
+            s=18, edgecolors="none", zorder=3,
         )
-        handles.append(
-            Line2D(
-                [0], [0],
-                marker="o",
-                color="w",
-                markerfacecolor=color,
-                markersize=7,
-                label=CLASSIFICATION_DISPLAY[cls],
+        # Reference geometry
+        ax_i.axhline(0.0, ls="--", color="#AAAAAA", lw=1, zorder=2)
+        ax_i.plot(_xs, 1.0 - _xs, ls="--", color="#AAAAAA", lw=0.8, zorder=2)
+        ax_i.set_title(
+            f"{CLASSIFICATION_DISPLAY[cls]} (n={int(mask.sum())})", pad=10,
+        )
+        ax_i.set_xlabel(x_label)
+
+    # Hide any unused axes (when classes don't fill the grid)
+    for ax_i in flat_axes[len(classes):]:
+        ax_i.set_visible(False)
+
+    # Single y-label on the leftmost axis of each row
+    for row_idx in range(n_rows):
+        flat_axes[row_idx * n_cols].set_ylabel(y_label)
+
+    # Apply shared limits
+    flat_axes[0].set_xlim(x_lo, x_hi)
+    flat_axes[0].set_ylim(y_lo, y_hi)
+
+    # Reserve room above the subplots so the suptitle does not sit flush
+    # against the per-axes title.
+    fig.suptitle(title, y=0.99)
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.92))
+    return fig
+
+
+def make_classified_scatter_grid(
+    df: pd.DataFrame,
+    *,
+    model_col: str = "model_name",
+    x_col: str = "rscc_baseline",
+    y_col: str = "rscc_optimal",
+    class_col: str = "classification",
+    x_label: str = "Baseline RSCC",
+    y_label: str = "Improvement (Guided − Baseline RSCC)",
+    title: str = "RSCC Improvement by Conformation Type",
+    model_order: list[str] | None = None,
+) -> plt.Figure:
+    """Combined per-class residual scatter for many models on one figure.
+
+    Rows are models, columns are classifications. All subplots share a
+    single x and y axis pair (one figure-level x label, one figure-level
+    y label). Class column titles with per-class ``n`` appear only on the
+    top row; each row is preceded by a horizontal banner with the model
+    display name.
+
+    The per-class ``n`` is the count of unique ``(protein, selection)``
+    pairs in that class — independent of which model is in the row, since
+    every (protein, selection) maps to exactly one classification.
+
+    The light-gray context shadow in each subplot is that row's model's
+    pooled residual cloud (matching :func:`make_classified_scatter`).
+    """
+    classes = [c for c in CLASSIFICATION_ORDER if c in set(df[class_col])]
+    n_cols = max(1, len(classes))
+
+    if model_order is not None:
+        models = [m for m in model_order if m in set(df[model_col])]
+    else:
+        models = sorted(df[model_col].unique())
+    n_rows = max(1, len(models))
+
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        figsize=(3.8 * n_cols, 3.4 * n_rows),
+        sharex=True, sharey=True,
+        squeeze=False,
+    )
+
+    y_all_resid = (df[y_col] - df[x_col]).to_numpy()
+    x_lo, x_hi = 0.0, 1.0
+    y_hi = 1.0
+    _finite = np.isfinite(y_all_resid)
+    if _finite.any():
+        y_lo = float(min(0.0, np.nanmin(y_all_resid[_finite]))) - 0.02
+    else:
+        y_lo = -0.05
+    _xs = np.linspace(x_lo, x_hi, 100)
+
+    # n per class is the count of unique (protein, selection) pairs in
+    # that class — invariant across rows.
+    _unique_pairs = df.drop_duplicates(["protein", "selection"])
+    class_counts = (
+        _unique_pairs[class_col].value_counts().to_dict()
+    )
+
+    for row_idx, model in enumerate(models):
+        sub_df = df[df[model_col] == model]
+        x_sub = sub_df[x_col].to_numpy()
+        y_sub = (sub_df[y_col] - sub_df[x_col]).to_numpy()
+
+        for col_idx, cls in enumerate(classes):
+            ax = axes[row_idx, col_idx]
+            ax.scatter(
+                x_sub, y_sub,
+                color="lightgray", alpha=0.25,
+                s=14, edgecolors="none", zorder=1,
             )
+            mask = sub_df[class_col] == cls
+            cx = sub_df.loc[mask, x_col].to_numpy()
+            cy = (sub_df.loc[mask, y_col] - sub_df.loc[mask, x_col]).to_numpy()
+            color = CLASSIFICATION_PALETTE[cls]
+            ax.scatter(
+                cx, cy,
+                c=color, alpha=0.7,
+                s=18, edgecolors="none", zorder=3,
+            )
+            ax.axhline(0.0, ls="--", color="#AAAAAA", lw=1, zorder=2)
+            ax.plot(_xs, 1.0 - _xs, ls="--", color="#AAAAAA", lw=0.8, zorder=2)
+            if row_idx == 0:
+                ax.set_title(
+                    f"{CLASSIFICATION_DISPLAY[cls]} "
+                    f"(n={int(class_counts.get(cls, 0))})",
+                    pad=10,
+                )
+
+    axes[0, 0].set_xlim(x_lo, x_hi)
+    axes[0, 0].set_ylim(y_lo, y_hi)
+
+    fig.supxlabel(x_label, y=0.02)
+    fig.supylabel(y_label, x=0.01)
+    fig.suptitle(title, y=0.985)
+    fig.subplots_adjust(
+        left=0.07, right=0.99,
+        top=0.93, bottom=0.07,
+        hspace=0.45, wspace=0.08,
+    )
+
+    for row_idx, model in enumerate(models):
+        left_box = axes[row_idx, 0].get_position()
+        right_box = axes[row_idx, -1].get_position()
+        x_center = 0.5 * (left_box.x0 + right_box.x1)
+        y_text = left_box.y1 + 0.005
+        fig.text(
+            x_center, y_text,
+            MODEL_DISPLAY.get(model, model),
+            ha="center", va="bottom",
+            fontsize=13, weight="bold",
         )
 
-    if show_correlation:
-        _finite = np.isfinite(x) & np.isfinite(y)
-        if int(_finite.sum()) >= 5:
-            r_val = float(np.corrcoef(x[_finite], y[_finite])[0, 1])
-            ax.text(
-                0.97, 0.03, f"r = {r_val:.3f}",
-                transform=ax.transAxes, ha="right", va="bottom",
-                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#CCCCCC", alpha=0.8),
-            )
-
-    ax.set_xlabel(x_label)
-    ax.set_ylabel(y_label)
-    ax.set_title(title)
-
-    if handles:
-        ax.legend(handles=handles, loc="upper left", frameon=False)
-
-    if equal_aspect and draw_diagonal:
-        ax.set_aspect("equal", adjustable="datalim")
-        pad = 0.01
-        ax.set_xlim(lo + pad, hi)
-        ax.set_ylim(lo + pad, hi)
-    elif equal_aspect:
-        ax.set_aspect("equal", adjustable="datalim")
-
-    fig.tight_layout()
     return fig
 
 
@@ -939,118 +1234,118 @@ def make_classified_aggregated_scatter(
     *,
     x_col: str = "x_mean",
     y_col: str = "y_mean",
-    x_err_lo_col: str = "x_err_lo",
-    x_err_hi_col: str = "x_err_hi",
-    y_err_lo_col: str = "y_err_lo",
-    y_err_hi_col: str = "y_err_hi",
+    x_err_lo_col: str | None = "x_err_lo",
+    x_err_hi_col: str | None = "x_err_hi",
+    y_err_lo_col: str | None = "y_err_lo",
+    y_err_hi_col: str | None = "y_err_hi",
     class_col: str = "classification",
     x_label: str = "Baseline RSCC (mean \u00b1 SD)",
-    y_label: str = "Guided RSCC at optimal gw (mean \u00b1 SD)",
-    title: str = "RSCC by Conformation Type",
-    draw_diagonal: bool = True,
-    equal_aspect: bool = True,
+    y_label: str = "Improvement (Guided \u2212 Baseline RSCC)",
+    title: str = "RSCC Improvement by Conformation Type",
+    draw_diagonal: bool = True,  # ignored \u2014 residual mode owns the geometry
+    equal_aspect: bool = True,  # ignored
     show_correlation: bool = False,
+    show_errors: bool = True,
     label_col: str | None = None,
 ) -> plt.Figure:
-    """Aggregated scatter with error bars, coloured by classification.
+    """Per-class small-multiples residual plot with propagated error bars.
 
     Each row of *agg_df* is one (protein, selection) pair aggregated across
-    models.  Error bars show mean \u00b1 1 SD.
+    models. Per-axis error columns are mean \u00b1 SD; y-axis residual error is
+    propagated as ``sqrt(sd_g^2 + sd_b^2)`` assuming independence between
+    the baseline and guided per-protein estimates.
+
+    The figure is a row of subplots, one per classification. Each subplot
+    shows the full pooled dataset in light gray as a context shadow, then
+    overlays only the points belonging to that subplot's class in the
+    class colour. Subplots share x and y axes; titles are
+    ``"<class> (n=<count>)"``. Every subplot shows the y = 0 reference
+    and the y = 1 \u2212 x ceiling envelope.
     """
-    from matplotlib.lines import Line2D
+    classes = [c for c in CLASSIFICATION_ORDER if c in set(agg_df[class_col])]
+    n_classes = max(1, len(classes))
+    n_cols = min(4, n_classes)
+    n_rows = int(np.ceil(n_classes / n_cols))
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        figsize=(3.4 * n_cols, 3.6 * n_rows),
+        sharex=True, sharey=True,
+        squeeze=False,
+    )
+    flat_axes = axes.flatten()
 
-    fig, ax = plt.subplots(figsize=(6, 6))
+    x_all_med = agg_df[x_col].to_numpy()
+    y_all_resid = (agg_df[y_col] - agg_df[x_col]).to_numpy()
 
-    x_all = agg_df[x_col].to_numpy()
-    y_all = agg_df[y_col].to_numpy()
+    # X pinned to [0, 1]; y upper bound pinned at 1, lower bound tight to
+    # data so decreased points stay visible.
+    x_lo, x_hi = 0.0, 1.0
+    y_hi = 1.0
+    _finite_y = np.isfinite(y_all_resid)
+    if _finite_y.any():
+        y_lo = float(min(0.0, np.nanmin(y_all_resid[_finite_y]))) - 0.02
+    else:
+        y_lo = -0.05
+    _xs = np.linspace(x_lo, x_hi, 100)
 
-    if draw_diagonal:
-        lo = float(min(np.nanmin(agg_df[x_err_lo_col]), np.nanmin(agg_df[y_err_lo_col]))) - 0.02
-        hi = float(max(np.nanmax(agg_df[x_err_hi_col]), np.nanmax(agg_df[y_err_hi_col]))) + 0.02
-        ax.plot([lo, hi], [lo, hi], ls="--", color="#AAAAAA", lw=1, zorder=1)
+    for ax_i, cls in zip(flat_axes, classes):
+        mask = agg_df[class_col] == cls
+        # Light-gray context shadow (no error bars; just point cloud)
+        ax_i.scatter(
+            x_all_med, y_all_resid,
+            color="lightgray", alpha=0.25,
+            s=14, edgecolors="none", zorder=1,
+        )
 
-    handles = []
-    texts: list = []
-    for cls in CLASSIFICATION_ORDER:
-        sub = agg_df[agg_df[class_col] == cls]
-        if sub.empty:
-            continue
+        sub = agg_df[mask]
         color = CLASSIFICATION_PALETTE[cls]
-        x_med = sub[x_col].to_numpy()
-        y_med = sub[y_col].to_numpy()
-        xerr = np.vstack([x_med - sub[x_err_lo_col].to_numpy(),
-                          sub[x_err_hi_col].to_numpy() - x_med])
-        yerr = np.vstack([y_med - sub[y_err_lo_col].to_numpy(),
-                          sub[y_err_hi_col].to_numpy() - y_med])
-        xerr = np.clip(xerr, 0, None)
-        yerr = np.clip(yerr, 0, None)
-
-        ax.errorbar(
-            x_med, y_med,
-            xerr=xerr, yerr=yerr,
-            fmt="none", ecolor=color, alpha=0.35, capsize=3, lw=1.0, zorder=2,
-        )
-        ax.scatter(
-            x_med, y_med,
-            c=color, s=55, edgecolors="white", linewidths=0.5, zorder=4,
-        )
-        handles.append(
-            Line2D(
-                [0], [0],
-                marker="o",
-                color="w",
-                markerfacecolor=color,
-                markersize=7,
-                label=CLASSIFICATION_DISPLAY[cls],
+        if not sub.empty:
+            x_med = sub[x_col].to_numpy()
+            y_med = (sub[y_col] - sub[x_col]).to_numpy()
+            _err_cols_present = all(
+                c is not None for c in (
+                    x_err_lo_col, x_err_hi_col, y_err_lo_col, y_err_hi_col,
+                )
             )
-        )
-
-        if label_col is not None and label_col in sub.columns:
-            for _, r in sub.iterrows():
-                texts.append(ax.text(
-                    r[x_col], r[y_col], str(r[label_col]).upper(),
-                    color="#333333",
-                ))
-
-    if show_correlation:
-        _finite = np.isfinite(x_all) & np.isfinite(y_all)
-        if int(_finite.sum()) >= 5:
-            r_val = float(np.corrcoef(x_all[_finite], y_all[_finite])[0, 1])
-            ax.text(
-                0.97, 0.03, f"r = {r_val:.3f}",
-                transform=ax.transAxes, ha="right", va="bottom",
-                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#CCCCCC", alpha=0.8),
+            draw_errors = show_errors and _err_cols_present
+            if draw_errors:
+                sd_x = (sub[x_err_hi_col].to_numpy() - sub[x_err_lo_col].to_numpy()) / 2.0
+                sd_y = (sub[y_err_hi_col].to_numpy() - sub[y_err_lo_col].to_numpy()) / 2.0
+                sd_resid = np.sqrt(sd_x**2 + sd_y**2)
+                xerr = np.vstack([
+                    np.clip(x_med - sub[x_err_lo_col].to_numpy(), 0, None),
+                    np.clip(sub[x_err_hi_col].to_numpy() - x_med, 0, None),
+                ])
+                yerr = np.vstack([sd_resid, sd_resid])
+                ax_i.errorbar(
+                    x_med, y_med,
+                    xerr=xerr, yerr=yerr,
+                    fmt="none", ecolor=color, alpha=0.35, capsize=3, lw=1.0, zorder=2,
+                )
+            ax_i.scatter(
+                x_med, y_med,
+                c=color, alpha=0.7,
+                s=22, edgecolors="none", zorder=4,
             )
 
-    ax.set_xlabel(x_label)
-    ax.set_ylabel(y_label)
-    ax.set_title(title)
-
-    if handles:
-        ax.legend(handles=handles, loc="upper left", frameon=False)
-
-    if equal_aspect and draw_diagonal:
-        ax.set_aspect("equal", adjustable="datalim")
-        pad = 0.01
-        ax.set_xlim(lo + pad, hi)
-        ax.set_ylim(lo + pad, hi)
-    elif equal_aspect:
-        ax.set_aspect("equal", adjustable="datalim")
-
-    if texts:
-        adjust_text(
-            texts, ax=ax,
-            arrowprops=dict(arrowstyle="-", color="#888888", lw=0.5),
-            expand=(1.5, 1.8),
-            force_text=(1.0, 1.5),
-            force_static=(0.8, 1.2),
-            force_explode=(0.5, 0.8),
-            ensure_inside_axes=False,
-            max_move=(40, 40),
-            time_lim=10,
+        ax_i.axhline(0.0, ls="--", color="#AAAAAA", lw=1, zorder=2)
+        ax_i.plot(_xs, 1.0 - _xs, ls="--", color="#AAAAAA", lw=0.8, zorder=2)
+        ax_i.set_title(
+            f"{CLASSIFICATION_DISPLAY[cls]} (n={int(mask.sum())})", pad=10,
         )
+        ax_i.set_xlabel(x_label)
 
-    fig.tight_layout()
+    for ax_i in flat_axes[len(classes):]:
+        ax_i.set_visible(False)
+
+    for row_idx in range(n_rows):
+        flat_axes[row_idx * n_cols].set_ylabel(y_label)
+
+    flat_axes[0].set_xlim(x_lo, x_hi)
+    flat_axes[0].set_ylim(y_lo, y_hi)
+
+    fig.suptitle(title, y=0.99)
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.92))
     return fig
 
 
@@ -1059,10 +1354,10 @@ def make_aggregated_scatter(
     *,
     x_col: str,
     y_col: str,
-    x_q1_col: str,
-    x_q3_col: str,
-    y_q1_col: str,
-    y_q3_col: str,
+    x_q1_col: str | None = None,
+    x_q3_col: str | None = None,
+    y_q1_col: str | None = None,
+    y_q3_col: str | None = None,
     x_label: str,
     y_label: str,
     title: str,
@@ -1072,10 +1367,16 @@ def make_aggregated_scatter(
     point_color: str = "#4D4D4D",
     label_points: bool = False,
     highlight_top_n: int = 3,
-    highlight_decreased: bool = True,
+    highlight_decreased: bool | int = True,
     highlight_proteins: list[str] | None = None,
     show_correlation: bool = False,
     show_marginal_kde: bool = False,
+    show_errors: bool = True,
+    xlim: tuple[float, float] | None = None,
+    ylim: tuple[float, float] | None = None,
+    residual: bool = False,
+    label_top_n: int = 5,
+    label_bottom_n: int = 5,
 ) -> plt.Figure:
     """Scatter plot with asymmetric IQR error bars for cross-model aggregations.
 
@@ -1083,6 +1384,30 @@ def make_aggregated_scatter(
     and ``*_q1``/``*_q3`` provide the IQR whiskers. Error-bar styling mirrors
     :func:`make_aggregated_spiral_figure` so the two figure families stay
     visually consistent.
+
+    Pass ``show_errors=False`` (or omit the ``*_q1_col``/``*_q3_col``
+    arguments) to draw only the central points; per-model spread is shown
+    elsewhere in this codebase by per-model scatter figures, so collapsed
+    aggregates don't always need whiskers.
+
+    ``xlim``/``ylim`` override the auto-computed axis ranges (including the
+    range derived from ``equal_aspect + draw_diagonal``) and also extend the
+    diagonal so it spans the full fixed range.
+
+    ``highlight_decreased`` accepts either a bool (``True`` = highlight every
+    decreased point, the default) or an integer count (``n`` = only label the
+    ``n`` most decreased rows). Use a bounded count on per-selection plots
+    where the raw decreased count is too high to be readable.
+
+    When ``residual=True``, the y-axis is ``y_col − x_col`` (improvement over
+    baseline). The y = x diagonal is replaced by a y = 0 horizontal reference
+    and a y = 1 − x ceiling envelope. Y error bars are propagated as
+    sqrt(sd_g^2 + sd_b^2), assuming the baseline and guided per-protein
+    estimates are independent — this is an approximation: in practice the two
+    share most of the same models, so the true residual SD is somewhat smaller.
+    Marker styling switches to small, un-edged, alpha=0.3 dots, and only
+    ``label_top_n`` most improved + ``label_bottom_n`` most decreased points
+    plus any ``highlight_proteins`` matches are labelled.
     """
     if show_marginal_kde:
         fig = plt.figure(figsize=(6, 7.5))
@@ -1094,84 +1419,209 @@ def make_aggregated_scatter(
         ax_kde = None
 
     x_med = agg_df[x_col].to_numpy()
-    y_med = agg_df[y_col].to_numpy()
-    x_q1 = agg_df[x_q1_col].to_numpy()
-    x_q3 = agg_df[x_q3_col].to_numpy()
-    y_q1 = agg_df[y_q1_col].to_numpy()
-    y_q3 = agg_df[y_q3_col].to_numpy()
+    y_med_raw = agg_df[y_col].to_numpy()
 
-    xerr = np.vstack([x_med - x_q1, x_q3 - x_med])
-    yerr = np.vstack([y_med - y_q1, y_q3 - y_med])
+    _err_cols_present = all(
+        c is not None for c in (x_q1_col, x_q3_col, y_q1_col, y_q3_col)
+    )
+    draw_errors = show_errors and _err_cols_present
 
-    if draw_diagonal:
-        lo = float(min(np.nanmin(x_q1), np.nanmin(y_q1))) - 0.02
-        hi = float(max(np.nanmax(x_q3), np.nanmax(y_q3))) + 0.02
+    if draw_errors:
+        x_q1 = agg_df[x_q1_col].to_numpy()
+        x_q3 = agg_df[x_q3_col].to_numpy()
+        y_q1 = agg_df[y_q1_col].to_numpy()
+        y_q3 = agg_df[y_q3_col].to_numpy()
+
+    if residual:
+        y_med = y_med_raw - x_med
+        equal_aspect = False
+        if "Improvement" not in y_label:
+            y_label_used = "Improvement (Guided − Baseline RSCC)"
+        else:
+            y_label_used = y_label
+        if draw_errors:
+            # propagate independent errors as sqrt(sd_g^2 + sd_b^2). q1/q3 are
+            # mean ± SD here (see notebook aggregation), so SD = (q3 − q1) / 2
+            # per axis.
+            sd_x = (x_q3 - x_q1) / 2.0
+            sd_y = (y_q3 - y_q1) / 2.0
+            sd_resid = np.sqrt(sd_y**2 + sd_x**2)
+            xerr = np.vstack([x_med - x_q1, x_q3 - x_med])
+            yerr = np.vstack([sd_resid, sd_resid])
+    else:
+        y_med = y_med_raw
+        y_label_used = y_label
+        if draw_errors:
+            xerr = np.vstack([x_med - x_q1, x_q3 - x_med])
+            yerr = np.vstack([y_med - y_q1, y_q3 - y_med])
+
+    if draw_diagonal and not residual:
+        if draw_errors:
+            lo = float(min(np.nanmin(x_q1), np.nanmin(y_q1))) - 0.02
+            hi = float(max(np.nanmax(x_q3), np.nanmax(y_q3))) + 0.02
+        else:
+            lo = float(min(np.nanmin(x_med), np.nanmin(y_med))) - 0.02
+            hi = float(max(np.nanmax(x_med), np.nanmax(y_med))) + 0.02
+        if xlim is not None:
+            lo = min(lo, xlim[0])
+            hi = max(hi, xlim[1])
+        if ylim is not None:
+            lo = min(lo, ylim[0])
+            hi = max(hi, ylim[1])
         ax.plot([lo, hi], [lo, hi], ls="--", color="#AAAAAA", lw=1, zorder=1)
 
-    ax.errorbar(
-        x_med, y_med,
-        xerr=xerr, yerr=yerr,
-        fmt="none",
-        ecolor=point_color,
-        alpha=0.35,
-        capsize=3,
-        lw=1.0,
-        zorder=2,
-    )
-    ax.scatter(
-        x_med, y_med,
-        c=point_color, s=55,
-        edgecolors="white", linewidths=0.5, zorder=4,
-    )
+    if residual:
+        # y = 0 horizontal reference and y = 1 - x envelope
+        _x_lo = float(np.nanmin(x_med)) if xlim is None else xlim[0]
+        _x_hi = float(np.nanmax(x_med)) if xlim is None else xlim[1]
+        _x_lo = min(_x_lo, 0.0) - 0.02
+        _x_hi = max(_x_hi, 1.0) + 0.02
+        ax.axhline(0.0, ls="--", color="#AAAAAA", lw=1, zorder=1)
+        _xs = np.linspace(_x_lo, _x_hi, 100)
+        ax.plot(_xs, 1.0 - _xs, ls="--", color="#AAAAAA", lw=0.8, zorder=1)
+
+    if draw_errors:
+        ax.errorbar(
+            x_med, y_med,
+            xerr=xerr, yerr=yerr,
+            fmt="none",
+            ecolor=point_color,
+            alpha=0.35,
+            capsize=3,
+            lw=1.0,
+            zorder=2,
+        )
+    if residual:
+        ax.scatter(
+            x_med, y_med,
+            c=point_color, s=18, alpha=0.3,
+            edgecolors="none", zorder=4,
+        )
+    else:
+        ax.scatter(
+            x_med, y_med,
+            c=point_color, s=55,
+            edgecolors="white", linewidths=0.5, zorder=4,
+        )
 
     texts: list = []
+    # Delta is always y_raw - x_med, irrespective of mode (this drives ranking)
     _delta = agg_df[y_col] - agg_df[x_col]
+    # Helper to map x-y back to plot space when placing rings/labels.
+    def _yp(idx):
+        if residual:
+            return agg_df.loc[idx, y_col] - agg_df.loc[idx, x_col]
+        return agg_df.loc[idx, y_col]
 
-    if highlight_decreased and label_col in agg_df.columns:
-        dec = agg_df[_delta < 0]
-        if not dec.empty:
-            ax.scatter(
-                dec[x_col], dec[y_col],
-                facecolors=point_color, s=70,
-                edgecolors="#D32F2F", linewidths=1.5, zorder=5,
-            )
-            for _, r in dec.iterrows():
-                texts.append(ax.text(
-                    r[x_col], r[y_col], str(r[label_col]).upper(),
-                    color="#333333", zorder=10,
-                ))
+    if residual:
+        # Residual mode: label exactly top-N + bottom-N + highlight matches.
+        _seen_idx: set = set()
 
-    if highlight_top_n > 0 and label_col in agg_df.columns:
-        imp = agg_df.loc[_delta.nlargest(highlight_top_n).index]
-        imp = imp[_delta.loc[imp.index] > 0]
-        if not imp.empty:
-            ax.scatter(
-                imp[x_col], imp[y_col],
-                facecolors=point_color, s=70,
-                edgecolors="#2E7D32", linewidths=1.5, zorder=5,
-            )
-            for _, r in imp.iterrows():
-                texts.append(ax.text(
-                    r[x_col], r[y_col], str(r[label_col]).upper(),
-                    color="#333333", zorder=10,
-                ))
+        if label_top_n > 0:
+            imp_idx = _delta.nlargest(label_top_n).index
+            imp_idx = [i for i in imp_idx if _delta.loc[i] > 0]
+            if imp_idx:
+                imp = agg_df.loc[imp_idx]
+                ax.scatter(
+                    imp[x_col], _yp(imp.index),
+                    facecolors=point_color, s=32,
+                    edgecolors="#2E7D32", linewidths=1.2, zorder=5,
+                )
+                if label_col in agg_df.columns:
+                    for i in imp_idx:
+                        _seen_idx.add(i)
+                        texts.append(ax.text(
+                            agg_df.loc[i, x_col], _yp(i),
+                            str(agg_df.loc[i, label_col]).upper(),
+                            color="#333333", zorder=10,
+                        ))
 
-    if highlight_proteins and label_col in agg_df.columns:
-        wanted = {p.lower() for p in highlight_proteins}
-        picked = agg_df[agg_df[label_col].str.lower().isin(wanted)]
-        already = {t.get_text().lower() for t in texts}
-        picked = picked[~picked[label_col].str.upper().str.lower().isin(already)]
-        if not picked.empty:
-            ax.scatter(
-                picked[x_col], picked[y_col],
-                facecolors=point_color, s=70,
-                edgecolors="#1565C0", linewidths=1.5, zorder=5,
-            )
-            for _, r in picked.iterrows():
-                texts.append(ax.text(
-                    r[x_col], r[y_col], str(r[label_col]).upper(),
-                    color="#333333", zorder=10,
-                ))
+        if label_bottom_n > 0:
+            dec_idx = _delta.nsmallest(label_bottom_n).index
+            dec_idx = [i for i in dec_idx if _delta.loc[i] < 0]
+            if dec_idx:
+                dec = agg_df.loc[dec_idx]
+                ax.scatter(
+                    dec[x_col], _yp(dec.index),
+                    facecolors=point_color, s=32,
+                    edgecolors="#D32F2F", linewidths=1.2, zorder=5,
+                )
+                if label_col in agg_df.columns:
+                    for i in dec_idx:
+                        _seen_idx.add(i)
+                        texts.append(ax.text(
+                            agg_df.loc[i, x_col], _yp(i),
+                            str(agg_df.loc[i, label_col]).upper(),
+                            color="#333333", zorder=10,
+                        ))
+
+        if highlight_proteins and label_col in agg_df.columns:
+            wanted = {p.lower() for p in highlight_proteins}
+            picked = agg_df[agg_df[label_col].str.lower().isin(wanted)]
+            picked = picked[~picked.index.isin(_seen_idx)]
+            if not picked.empty:
+                ax.scatter(
+                    picked[x_col], _yp(picked.index),
+                    facecolors=point_color, s=32,
+                    edgecolors="#1565C0", linewidths=1.2, zorder=5,
+                )
+                for i, r in picked.iterrows():
+                    texts.append(ax.text(
+                        r[x_col], _yp(i), str(r[label_col]).upper(),
+                        color="#333333", zorder=10,
+                    ))
+
+    else:
+        # Legacy non-residual highlighting
+        if highlight_decreased and label_col in agg_df.columns:
+            dec_mask = _delta < 0
+            dec = agg_df[dec_mask]
+            if not isinstance(highlight_decreased, bool):
+                dec_delta = _delta[dec_mask]
+                dec = dec.loc[dec_delta.nsmallest(int(highlight_decreased)).index]
+            if not dec.empty:
+                ax.scatter(
+                    dec[x_col], dec[y_col],
+                    facecolors=point_color, s=70,
+                    edgecolors="#D32F2F", linewidths=1.5, zorder=5,
+                )
+                for _, r in dec.iterrows():
+                    texts.append(ax.text(
+                        r[x_col], r[y_col], str(r[label_col]).upper(),
+                        color="#333333", zorder=10,
+                    ))
+
+        if highlight_top_n > 0 and label_col in agg_df.columns:
+            imp = agg_df.loc[_delta.nlargest(highlight_top_n).index]
+            imp = imp[_delta.loc[imp.index] > 0]
+            if not imp.empty:
+                ax.scatter(
+                    imp[x_col], imp[y_col],
+                    facecolors=point_color, s=70,
+                    edgecolors="#2E7D32", linewidths=1.5, zorder=5,
+                )
+                for _, r in imp.iterrows():
+                    texts.append(ax.text(
+                        r[x_col], r[y_col], str(r[label_col]).upper(),
+                        color="#333333", zorder=10,
+                    ))
+
+        if highlight_proteins and label_col in agg_df.columns:
+            wanted = {p.lower() for p in highlight_proteins}
+            picked = agg_df[agg_df[label_col].str.lower().isin(wanted)]
+            already = {t.get_text().lower() for t in texts}
+            picked = picked[~picked[label_col].str.upper().str.lower().isin(already)]
+            if not picked.empty:
+                ax.scatter(
+                    picked[x_col], picked[y_col],
+                    facecolors=point_color, s=70,
+                    edgecolors="#1565C0", linewidths=1.5, zorder=5,
+                )
+                for _, r in picked.iterrows():
+                    texts.append(ax.text(
+                        r[x_col], r[y_col], str(r[label_col]).upper(),
+                        color="#333333", zorder=10,
+                    ))
 
     if show_correlation:
         _finite = np.isfinite(x_med) & np.isfinite(y_med)
@@ -1183,15 +1633,17 @@ def make_aggregated_scatter(
                 bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#CCCCCC", alpha=0.8),
             )
 
-    ax.set_ylabel(y_label)
-    ax.set_title(title)
+    ax.set_ylabel(y_label_used)
+    ax.set_title(title, pad=14)
 
     if ax_kde is not None:
         plt.setp(ax.get_xticklabels(), visible=False)
         ax.tick_params(axis="x", length=0)
+        # Marginal panel always shows raw baseline/guided distributions on
+        # the shared baseline x-axis, even in residual mode.
         sns.kdeplot(x_med, ax=ax_kde, color="#888888", fill=True, alpha=0.3,
                     label="Baseline", lw=1.5, bw_adjust=0.5)
-        sns.kdeplot(y_med, ax=ax_kde, color=point_color, fill=True, alpha=0.3,
+        sns.kdeplot(y_med_raw, ax=ax_kde, color=point_color, fill=True, alpha=0.3,
                     label="Guided", lw=1.5, bw_adjust=0.5)
         ax_kde.set_xlabel(x_label)
         ax_kde.set_ylabel("Density")
@@ -1200,25 +1652,54 @@ def make_aggregated_scatter(
     else:
         ax.set_xlabel(x_label)
 
-    if equal_aspect and draw_diagonal:
-        ax.set_aspect("equal", adjustable="datalim")
+    # When fixed xlim/ylim are supplied, use adjustable="box" so the axes box
+    # is reshaped to honor the requested data ranges instead of matplotlib
+    # overriding one axis to preserve aspect ratio.
+    _fixed_limits = xlim is not None or ylim is not None
+    if equal_aspect:
+        ax.set_aspect("equal", adjustable="box" if _fixed_limits else "datalim")
+    if equal_aspect and draw_diagonal and not residual and not _fixed_limits:
         pad = 0.01
         ax.set_xlim(lo + pad, hi)
         ax.set_ylim(lo + pad, hi)
-    elif equal_aspect:
-        ax.set_aspect("equal", adjustable="datalim")
+    if xlim is not None:
+        ax.set_xlim(xlim)
+    if ylim is not None:
+        ax.set_ylim(ylim)
+
+    if residual:
+        # X pinned to [0, 1]; y upper bound pinned at 1 with a tight lower
+        # bound. See note in make_scatter_comparison.
+        if xlim is None:
+            ax.set_xlim(0.0, 1.0)
+        if ylim is None:
+            _yvals = y_med[np.isfinite(y_med)]
+            if len(_yvals) > 0:
+                _y_lo = float(min(0.0, np.nanmin(_yvals))) - 0.02
+            else:
+                _y_lo = -0.05
+            ax.set_ylim(_y_lo, 1.0)
 
     if texts:
-        adjust_text(
-            texts, ax=ax,
-            arrowprops=dict(arrowstyle="-", color="#888888", lw=0.5),
-            expand=(1.3, 1.5),
-            force_text=(0.5, 0.8),
-            force_static=(0.5, 0.8),
-            force_explode=(0.3, 0.6),
-            ensure_inside_axes=True,
-            max_move=(20, 20),
-        )
+        try:
+            adjust_text(
+                texts, ax=ax,
+                arrowprops=dict(arrowstyle="-", color="#888888", lw=0.5),
+                expand=(1.3, 1.5),
+                force_text=(0.5, 0.8),
+                force_static=(0.5, 0.8),
+                force_explode=(0.3, 0.6),
+                ensure_inside_axes=True,
+                max_move=(20, 20),
+            )
+        except Exception as exc:
+            warnings.warn(
+                f"make_aggregated_scatter: adjust_text failed ({exc}); "
+                "dropping labels rather than overlapping.",
+                stacklevel=2,
+            )
+            for t in texts:
+                t.remove()
 
     fig.tight_layout()
     return fig

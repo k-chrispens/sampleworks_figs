@@ -28,6 +28,7 @@ def _():
         make_aggregated_scatter,
         make_classified_scatter,
         make_classified_aggregated_scatter,
+        make_classified_scatter_grid,
         make_combined_baseline_distributions,
         make_delta_frame,
         model_slug,
@@ -55,6 +56,7 @@ def _():
         make_aggregated_scatter,
         make_classified_aggregated_scatter,
         make_classified_scatter,
+        make_classified_scatter_grid,
         make_combined_baseline_distributions,
         make_delta_frame,
         make_ridge_plot,
@@ -96,6 +98,7 @@ def _(mo):
     | -- | Aggregated RSCC scatter | `rscc_scatterplots/rscc_scatter_aggregated_all_models.svg` |
     | -- | RSCC by classification per model | `rscc_scatterplots/rscc_by_class_{model}.svg` |
     | -- | RSCC by classification aggregated | `rscc_scatterplots/rscc_by_class_aggregated.svg` |
+    | -- | RSCC by classification combined grid | `rscc_scatterplots/rscc_by_class_grid_all_models.svg` |
     | -- | Aggregated LDDT scatter | `rscc_scatterplots/lddt_scatter_aggregated_all_models.svg` |
     | -- | Aggregated RSCC vs LDDT scatter | `rscc_scatterplots/rscc_vs_lddt_aggregated_all_models.svg` |
     | 09 | LDDT baseline distribution | `09_lddt_to_ref_baseline_distribution[_variant].svg` |
@@ -311,20 +314,37 @@ def _(MODEL_DISPLAY, mo):
 
 
 @app.cell
-def _(OPTIMAL_GW, pd, rscc_all):
-    _gw_df = pd.DataFrame(list(OPTIMAL_GW.items()), columns=["model_name", "optimal_gw"])
+def _(OPTIMAL_GW, pd, rscc):
+    import re as _re
 
-    _baseline = rscc_all.query("guidance_weight == 0.0")[["protein", "model_name", "rscc"]].rename(
-        columns={"rscc": "rscc_baseline"}
+    _gw_df = pd.DataFrame(list(OPTIMAL_GW.items()), columns=["model_name", "optimal_gw"])
+    _region = rscc[rscc["selection_name"] != "all altloc"]
+
+    _baseline = (
+        _region.query("guidance_weight == 0.0")
+        [["protein", "selection", "model_name", "rscc"]]
+        .rename(columns={"rscc": "rscc_baseline"})
     )
     _optimal = (
-        rscc_all.merge(_gw_df, on="model_name")
+        _region.merge(_gw_df, on="model_name")
         .query("guidance_weight == optimal_gw")
-        [["protein", "model_name", "rscc"]]
+        [["protein", "selection", "model_name", "rscc"]]
         .rename(columns={"rscc": "rscc_optimal"})
     )
-    rscc_scatter_df = _baseline.merge(_optimal, on=["protein", "model_name"])
-    rscc_scatter_df["delta_rscc"] = rscc_scatter_df["rscc_optimal"] - rscc_scatter_df["rscc_baseline"]
+    rscc_scatter_df = _baseline.merge(
+        _optimal, on=["protein", "selection", "model_name"]
+    )
+    rscc_scatter_df["delta_rscc"] = (
+        rscc_scatter_df["rscc_optimal"] - rscc_scatter_df["rscc_baseline"]
+    )
+
+    def _res_range(sel: str) -> str:
+        m = _re.search(r"resi\s+([\d-]+)", str(sel))
+        return m.group(1) if m else str(sel)
+
+    rscc_scatter_df["label"] = rscc_scatter_df.apply(
+        lambda r: f"{str(r['protein']).upper()} {_res_range(r['selection'])}", axis=1,
+    )
     return (rscc_scatter_df,)
 
 
@@ -400,7 +420,7 @@ def _(
 ):
     _scatter_kwargs = dict(
         x_col="rscc", y_col="avg_silhouette_to_ref",
-        x_label="RSCC at Optimal Guidance",
+        x_label="RSCC",
         y_label="Avg. Silhouette to Ref",
         draw_regression=True, label_all=True, equal_aspect=False,
     )
@@ -431,14 +451,10 @@ def _(
 def _(auto_save, make_aggregated_scatter, mo, rscc_scatter_df, save_fig):
     _rscc_agg_df = (
         rscc_scatter_df.query("model_name not in @MODELS_ALT")
-        .groupby("protein", as_index=False)
+        .groupby(["protein", "selection", "label"], as_index=False)
         .agg(
-            x_med=("rscc_baseline", "mean"),
-            x_q1=("rscc_baseline", lambda s: s.mean() - s.std()),
-            x_q3=("rscc_baseline", lambda s: s.mean() + s.std()),
-            y_med=("rscc_optimal", "mean"),
-            y_q1=("rscc_optimal", lambda s: s.mean() - s.std()),
-            y_q3=("rscc_optimal", lambda s: s.mean() + s.std()),
+            x_med=("rscc_baseline", "median"),
+            y_med=("rscc_optimal", "median"),
             n=("model_name", "count"),
         )
     )
@@ -447,22 +463,25 @@ def _(auto_save, make_aggregated_scatter, mo, rscc_scatter_df, save_fig):
     _fig = make_aggregated_scatter(
         _rscc_agg_df,
         x_col="x_med", y_col="y_med",
-        x_q1_col="x_q1", x_q3_col="x_q3",
-        y_q1_col="y_q1", y_q3_col="y_q3",
-        x_label="Baseline RSCC (mean +/- SD)",
-        y_label="Guided RSCC at optimal gw (mean +/- SD)",
+        x_label="Baseline RSCC (median across models)",
+        y_label="Median Improvement (Guided - Baseline)",
         title="RSCC Improvement Over Baseline",
-        draw_diagonal=True, equal_aspect=True,
+        label_col="label",
+        residual=True,
         show_marginal_kde=True,
+        show_errors=False,
         point_color="#377EB8",
-        highlight_top_n=3, highlight_decreased=True,
-        highlight_proteins=["6b8x", "5mhx"],
+        label_top_n=5, label_bottom_n=5,
+        # The altloc-resolved selections sitting inside the most flexible large loop
+        # for each protein (6B8X 178-193 -> resolved 181-183; 5MHX 158-167 -> resolved 162-164).
+        highlight_proteins=["6B8X 181-183", "5MHX 162-164"],
+        xlim=(0.0, 1.0),
     )
     if auto_save.value:
         save_fig(_fig, "rscc_scatterplots/rscc_scatter_aggregated_all_models.png")
     mo.vstack([
         mo.md("""## Aggregated RSCC Scatter -- Collapsed Across Main Models
-        Each point is one protein; baseline and guided RSCC collapsed across main models (mean +/- SD).
+        Each point is one (protein, selection); baseline and guided RSCC collapsed across main models using the median (per-model spread shown in the per-model figures above).
         `figures/rscc_scatterplots/rscc_scatter_aggregated_all_models.svg`"""),
         _fig,
     ])
@@ -476,6 +495,7 @@ def _(
     classification_df,
     make_classified_aggregated_scatter,
     make_classified_scatter,
+    make_classified_scatter_grid,
     mo,
     model_slug,
     pd,
@@ -510,14 +530,14 @@ def _(
             _mdf = _rscc_by_class_df[_rscc_by_class_df["model_name"] == _model]
             if _mdf.empty:
                 continue
-            _fig = make_classified_scatter(_mdf, _model, y_label=f"RSCC at gw={OPTIMAL_GW[_model]}")
+            _fig = make_classified_scatter(_mdf, _model)
             save_fig(_fig, f"rscc_scatterplots/rscc_by_class_{model_slug(_model)}.svg")
             plt.close(_fig)
 
     # Show current model
     _cur = scatter_model.value
     _cur_df = _rscc_by_class_df[_rscc_by_class_df["model_name"] == _cur]
-    _fig_cur = make_classified_scatter(_cur_df, _cur, y_label=f"RSCC at gw={OPTIMAL_GW[_cur]}")
+    _fig_cur = make_classified_scatter(_cur_df, _cur)
     if auto_save.value:
         save_fig(_fig_cur, f"rscc_scatterplots/rscc_by_class_{model_slug(_cur)}.svg")
 
@@ -526,26 +546,37 @@ def _(
         _rscc_by_class_df
         .groupby(["protein", "selection", "classification"], as_index=False)
         .agg(
-            x_mean=("rscc_baseline", "mean"),
-            x_err_lo=("rscc_baseline", lambda s: s.mean() - s.std()),
-            x_err_hi=("rscc_baseline", lambda s: s.mean() + s.std()),
-            y_mean=("rscc_optimal", "mean"),
-            y_err_lo=("rscc_optimal", lambda s: s.mean() - s.std()),
-            y_err_hi=("rscc_optimal", lambda s: s.mean() + s.std()),
+            x_mean=("rscc_baseline", "median"),
+            y_mean=("rscc_optimal", "median"),
             n=("model_name", "count"),
         )
     )
     _rscc_by_class_agg = _rscc_by_class_agg[_rscc_by_class_agg["n"] >= 3]
-    _fig_agg = make_classified_aggregated_scatter(_rscc_by_class_agg)
+    _fig_agg = make_classified_aggregated_scatter(
+        _rscc_by_class_agg,
+        x_err_lo_col=None, x_err_hi_col=None,
+        y_err_lo_col=None, y_err_hi_col=None,
+        x_label="Baseline RSCC (median across models)",
+        y_label="Median Improvement (Guided - Baseline)",
+        show_errors=False,
+    )
     if auto_save.value:
         save_fig(_fig_agg, "rscc_scatterplots/rscc_by_class_aggregated.png")
+
+    # Combined grid: rows = main models only, cols = classes, shared x and y axes.
+    _fig_grid = make_classified_scatter_grid(
+        _rscc_by_class_df.query("model_name not in @MODELS_ALT"),
+    )
+    if auto_save.value:
+        save_fig(_fig_grid, "rscc_scatterplots/rscc_by_class_grid_all_models.svg")
 
     mo.vstack([
         mo.md("""## RSCC by Conformational Type -- Baseline vs Optimal Guidance
         Per-selection scatter colored by conformational change classification.
-        `figures/rscc_scatterplots/rscc_by_class_{model}.svg` and `rscc_by_class_aggregated.svg`"""),
+        `figures/rscc_scatterplots/rscc_by_class_{model}.svg`, `rscc_by_class_aggregated.svg`, and `rscc_by_class_grid_all_models.svg`"""),
         _fig_cur,
         _fig_agg,
+        _fig_grid,
     ])
     return
 
@@ -561,51 +592,60 @@ def _(
     pd,
     save_fig,
 ):
+    import re as _re
+
     _gw_df = pd.DataFrame(list(OPTIMAL_GW.items()), columns=["model_name", "optimal_gw"])
 
-    # Build lddt_scatter_df
+    # Build per-(protein, selection, model) baseline + optimal LDDT
     _lddt_nontrivial = lddt_results_1[lddt_results_1["selection_name"] != "all altloc"]
     _baseline_lddt = (
-        _lddt_nontrivial.query("guidance_weight == 0.0")
-        .groupby(["protein", "model_name"], as_index=False)
-        .agg(lddt_baseline=("avg_silhouette_to_ref", "mean"))
+        _lddt_nontrivial.query("guidance_weight == 0.0 and model_name not in @MODELS_ALT")
+        [["protein", "selection", "model_name", "avg_silhouette_to_ref"]]
+        .rename(columns={"avg_silhouette_to_ref": "lddt_baseline"})
     )
     _optimal_lddt = (
         _lddt_nontrivial.merge(_gw_df, on="model_name")
-        .query("guidance_weight == optimal_gw")
-        .groupby(["protein", "model_name"], as_index=False)
-        .agg(lddt_optimal=("avg_silhouette_to_ref", "mean"))
+        .query("guidance_weight == optimal_gw and model_name not in @MODELS_ALT")
+        [["protein", "selection", "model_name", "avg_silhouette_to_ref"]]
+        .rename(columns={"avg_silhouette_to_ref": "lddt_optimal"})
     )
-    _lddt_scatter_df = _baseline_lddt.merge(_optimal_lddt, on=["protein", "model_name"])
-    _lddt_scatter_df["delta_lddt"] = _lddt_scatter_df["lddt_optimal"] - _lddt_scatter_df["lddt_baseline"]
+    _lddt_per_sel = _baseline_lddt.merge(
+        _optimal_lddt, on=["protein", "selection", "model_name"]
+    )
 
-    # Aggregated LDDT scatter
+    # Aggregated LDDT scatter (per protein, selection)
     _lddt_agg_df = (
-        _lddt_scatter_df.query("model_name not in @MODELS_ALT")
-        .groupby("protein", as_index=False)
+        _lddt_per_sel.groupby(["protein", "selection"], as_index=False)
         .agg(
-            x_med=("lddt_baseline", "mean"),
-            x_q1=("lddt_baseline", lambda s: s.mean() - s.std()),
-            x_q3=("lddt_baseline", lambda s: s.mean() + s.std()),
-            y_med=("lddt_optimal", "mean"),
-            y_q1=("lddt_optimal", lambda s: s.mean() - s.std()),
-            y_q3=("lddt_optimal", lambda s: s.mean() + s.std()),
+            x_med=("lddt_baseline", "median"),
+            y_med=("lddt_optimal", "median"),
             n=("model_name", "count"),
         )
     )
     _lddt_agg_df = _lddt_agg_df[_lddt_agg_df["n"] >= 3]
+
+    def _res_range(sel: str) -> str:
+        m = _re.search(r"resi\s+([\d-]+)", str(sel))
+        return m.group(1) if m else str(sel)
+
+    _lddt_agg_df["label"] = _lddt_agg_df.apply(
+        lambda r: f"{str(r['protein']).upper()} {_res_range(r['selection'])}", axis=1,
+    )
+
     _fig_lddt = make_aggregated_scatter(
         _lddt_agg_df,
         x_col="x_med", y_col="y_med",
-        x_q1_col="x_q1", x_q3_col="x_q3",
-        y_q1_col="y_q1", y_q3_col="y_q3",
-        x_label="Baseline Avg Silhouette to Ref (mean +/- SD)",
-        y_label="Guided Avg Silhouette to Ref at optimal gw (mean +/- SD)",
+        x_label="Baseline Avg Silhouette to Ref (median across models)",
+        y_label="Median Improvement (Guided - Baseline)",
         title="Avg Silhouette to Ref Improvement Over Baseline",
-        draw_diagonal=True, equal_aspect=True,
-        show_marginal_kde=True, point_color="#377EB8",
-        highlight_top_n=3, highlight_decreased=True,
-        highlight_proteins=["6b8x", "5mhx"],
+        label_col="label",
+        residual=True,
+        show_marginal_kde=True, show_errors=False, point_color="#377EB8",
+        label_top_n=5, label_bottom_n=5,
+        # Altloc-resolved selections inside the most flexible large loop of each protein
+        # (6B8X 178-193 -> resolved 181-183; 5MHX 158-167 -> resolved 162-164).
+        highlight_proteins=["6B8X 181-183", "5MHX 162-164"],
+        xlim=(0.0, 1.0),
     )
     if auto_save.value:
         save_fig(_fig_lddt, "rscc_scatterplots/silhouette_scatter_aggregated_all_models.png")
@@ -615,12 +655,8 @@ def _(
         cross_metric_df.query("model_name not in @MODELS_ALT")
         .groupby("protein", as_index=False)
         .agg(
-            x_med=("rscc", "mean"),
-            x_q1=("rscc", lambda s: s.mean() - s.std()),
-            x_q3=("rscc", lambda s: s.mean() + s.std()),
-            y_med=("avg_silhouette_to_ref", "mean"),
-            y_q1=("avg_silhouette_to_ref", lambda s: s.mean() - s.std()),
-            y_q3=("avg_silhouette_to_ref", lambda s: s.mean() + s.std()),
+            x_med=("rscc", "median"),
+            y_med=("avg_silhouette_to_ref", "median"),
             n=("model_name", "count"),
         )
     )
@@ -628,12 +664,11 @@ def _(
     _fig_cross = make_aggregated_scatter(
         _cross_agg_df,
         x_col="x_med", y_col="y_med",
-        x_q1_col="x_q1", x_q3_col="x_q3",
-        y_q1_col="y_q1", y_q3_col="y_q3",
-        x_label="Guided RSCC at optimal gw (mean +/- SD)",
-        y_label="Guided Avg Silhouette to Ref (mean +/- SD)",
-        title="RSCC vs Avg Silhouette to Ref at optimal guidance",
+        x_label="Guided RSCC (median across models)",
+        y_label="Guided Avg Silhouette to Ref (median across models)",
+        title="RSCC vs Avg Silhouette to Ref",
         draw_diagonal=False, equal_aspect=False,
+        show_errors=False,
         highlight_top_n=3, highlight_decreased=True,
         highlight_proteins=["6b8x", "5mhx"],
     )
@@ -642,7 +677,7 @@ def _(
 
     mo.vstack([
         mo.md("""## Aggregated Scatter Plots -- LDDT and Cross-Metric
-        Collapsed across main models with mean +/- SD whiskers."""),
+        Collapsed across main models using the per-(protein, selection) median; per-model spread is shown in the per-model figures."""),
         mo.tabs({
             "LDDT Scatter": _fig_lddt,
             "RSCC vs LDDT": _fig_cross,
