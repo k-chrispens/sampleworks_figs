@@ -505,17 +505,82 @@ def load_classification(csv_path: str) -> pd.DataFrame:
     Parameters
     ----------
     csv_path : str
-        Path to ``classify_altloc_regions.csv``.
+        Path to a classification CSV (e.g. ``classify_altloc_regions.csv`` or
+        ``small-altlocs-classified-rmsd.csv``).
 
     Returns
     -------
     pd.DataFrame
-        Columns: ``protein``, ``selection``, ``classification``.
-        ``protein`` is lowercased to match RSCC/LDDT conventions.
+        Columns: ``protein``, ``selection``, ``classification``, ``chain``,
+        ``start_res``, ``end_res``. ``protein`` is lowercased.
     """
     df = pd.read_csv(csv_path)
     df["protein"] = df["protein"].str.lower()
-    return df[["protein", "selection", "classification"]]
+    return df[["protein", "selection", "classification", "chain", "start_res", "end_res"]]
+
+
+_RSCC_SEL_PATTERN = re.compile(r"chain\s+(\S+)\s+and\s+resi\s+(\d+)-(\d+)")
+
+
+def merge_classification_by_containment(
+    rscc_df: pd.DataFrame,
+    classification_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """Inner-join RSCC rows to classifications by residue-range containment.
+
+    For each RSCC selection ``chain X and resi A-B``, finds the classification
+    row with the same protein and chain whose ``[start_res, end_res]`` fully
+    contains ``[A, B]``. Exact-match selections (most rows) match through this
+    same path. If multiple classifications contain the same range, the
+    narrowest one wins.
+
+    Selections that don't parse, or have no containing classification, are
+    dropped; a one-line summary is printed.
+    """
+    parsed = rscc_df["selection"].str.extract(_RSCC_SEL_PATTERN)
+    parsed.columns = ["chain", "start_res", "end_res"]
+    parseable = parsed["chain"].notna()
+    if (~parseable).any():
+        print(
+            f"⚠️  {(~parseable).sum()} RSCC rows had unparseable selections "
+            f"(e.g. {rscc_df.loc[~parseable, 'selection'].iloc[0]!r}); dropped."
+        )
+    left = rscc_df[parseable].copy()
+    left["start_res"] = parsed.loc[parseable, "start_res"].astype(int)
+    left["end_res"] = parsed.loc[parseable, "end_res"].astype(int)
+    left["chain"] = parsed.loc[parseable, "chain"]
+
+    cls = classification_df.rename(columns={
+        "start_res": "_cls_start",
+        "end_res": "_cls_end",
+        "selection": "_cls_selection",
+    })
+
+    merged = left.merge(cls, on=["protein", "chain"], how="left")
+    contained = (
+        (merged["_cls_start"] <= merged["start_res"])
+        & (merged["_cls_end"] >= merged["end_res"])
+    )
+    merged = merged[contained].copy()
+    merged["_cls_span"] = merged["_cls_end"] - merged["_cls_start"]
+    merged = (
+        merged
+        .sort_values("_cls_span")
+        .drop_duplicates(subset=list(left.columns), keep="first")
+    )
+
+    matched_keys = merged.set_index(list(left.columns)).index
+    left_keys = left.set_index(list(left.columns)).index
+    unmatched = ~left_keys.isin(matched_keys)
+    if unmatched.any():
+        n = int(unmatched.sum())
+        sample = left.loc[unmatched.values, ["protein", "selection"]].drop_duplicates().head(3)
+        print(
+            f"⚠️  {n} RSCC rows had no containing classification; dropped. "
+            f"Examples: {sample.to_dict(orient='records')}"
+        )
+
+    return merged.drop(columns=["_cls_start", "_cls_end", "_cls_selection", "_cls_span"])
 
 
 # ── Plotting helpers ──────────────────────────────────────────────────────────
@@ -2976,6 +3041,25 @@ def make_aggregated_spiral_figure(
                 x_med, y_med,
                 c=[line_color] * len(gws), s=sizes,
                 edgecolors=edge_colors, linewidths=edge_widths, zorder=4,
+            )
+
+        for gw, x, y in zip(gws, x_med, y_med):
+            is_opt = opt_gw is not None and np.isclose(gw, opt_gw)
+            ax.annotate(
+                f"{gw:g}",
+                xy=(x, y),
+                xytext=(5, 5),
+                textcoords="offset points",
+                fontsize=7,
+                fontweight="bold" if is_opt else "normal",
+                color="#222222",
+                bbox=dict(
+                    boxstyle="round,pad=0.12",
+                    fc="white",
+                    ec="none",
+                    alpha=0.7,
+                ),
+                zorder=5,
             )
 
     ax.axvline(0, color="#555555", ls="--", lw=0.8, alpha=0.5)

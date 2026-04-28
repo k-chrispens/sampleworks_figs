@@ -22,6 +22,7 @@ def _():
         load_rscc,
         load_lddt,
         load_classification,
+        merge_classification_by_containment,
         make_ridge_plot,
         make_rscc_scatter,
         make_scatter_comparison,
@@ -53,6 +54,7 @@ def _():
         load_classification,
         load_lddt,
         load_rscc,
+        merge_classification_by_containment,
         make_aggregated_scatter,
         make_classified_aggregated_scatter,
         make_classified_scatter,
@@ -169,7 +171,7 @@ def _(add_simplified_metadata_columns, load_lddt, nan_rscc_proteins):
 
 @app.cell
 def _(load_classification, nan_rscc_proteins):
-    classification_df = load_classification("classify_altloc_regions.csv")
+    classification_df = load_classification("small-altlocs-classified-rmsd.csv")
     if nan_rscc_proteins:
         classification_df = classification_df[~classification_df["protein"].isin(nan_rscc_proteins)]
     return (classification_df,)
@@ -496,6 +498,7 @@ def _(
     make_classified_aggregated_scatter,
     make_classified_scatter,
     make_classified_scatter_grid,
+    merge_classification_by_containment,
     mo,
     model_slug,
     pd,
@@ -508,7 +511,7 @@ def _(
     # Build rscc_by_class_df
     _gw_df = pd.DataFrame(list(OPTIMAL_GW.items()), columns=["model_name", "optimal_gw"])
     _region = rscc[rscc["selection_name"] != "all altloc"].copy()
-    _region_cls = _region.merge(classification_df, on=["protein", "selection"], how="inner")
+    _region_cls = merge_classification_by_containment(_region, classification_df)
 
     _baseline = (
         _region_cls.query("guidance_weight == 0.0")
