@@ -160,6 +160,20 @@ def model_slug(model_name: str) -> str:
     return display.lower().replace("-", "_").replace(" ", "_")
 
 
+def format_residue_range(sel: str) -> str:
+    """Extract residue range from a selection string, condensing single-residue ranges.
+
+    ``"chain A and resi 181-181"`` -> ``"181"``;
+    ``"chain A and resi 178-193"`` -> ``"178-193"``.
+    """
+    m = re.search(r"resi\s+(\d+)-(\d+)", str(sel))
+    if m:
+        s, e = m.group(1), m.group(2)
+        return s if s == e else f"{s}-{e}"
+    m2 = re.search(r"resi\s+([\d-]+)", str(sel))
+    return m2.group(1) if m2 else str(sel)
+
+
 CLASSIFICATION_PALETTE = {
     "side_chain_only": "#E7298A",  # magenta (ColorBrewer Dark2)
     "small_loop":      "#1B9E77",  # teal-green
@@ -690,8 +704,9 @@ def make_scatter_comparison(
     xlim: tuple[float, float] | None = None,
     ylim: tuple[float, float] | None = None,
     residual: bool = False,
-    label_top_n: int = 5,
+    label_top_n: int = 3,
     label_bottom_n: int = 5,
+    label_far_from_ceiling_n: int = 5,
 ) -> plt.Figure:
     """Generic scatter plot comparing two metrics for a single model.
 
@@ -736,15 +751,25 @@ def make_scatter_comparison(
     residual : bool
         If *True*, plot ``y_col - x_col`` on the y-axis instead of ``y_col``,
         replace the y = x diagonal with a y = 0 horizontal reference and a
-        y = 1 − x ceiling envelope, and label only the ``label_top_n`` most
-        improved + ``label_bottom_n`` most decreased points plus any
-        ``highlight_proteins`` matches. Marker styling switches to small,
-        un-edged, alpha=0.3 dots. Single-row data has no error to propagate;
-        the propagation rule sqrt(sd_g^2 + sd_b^2) applies in
+        y = 1 − x ceiling envelope. In residual mode, four label sets are
+        drawn: (a) the ``label_top_n`` most improved (delta > 0, green ring),
+        (b) every point with delta < 0 (red ring), (c) the
+        ``label_far_from_ceiling_n`` points furthest below the y = 1 − x
+        ceiling (orange ring), and (d) any point whose ``label_col`` value
+        matches an entry in ``highlight_proteins`` (blue ring overlay,
+        stacked on top of the other rings). Marker styling switches to
+        small, un-edged, alpha=0.3 dots. Single-row data has no error to
+        propagate; the propagation rule sqrt(sd_g^2 + sd_b^2) applies in
         :func:`make_aggregated_scatter`.
-    label_top_n, label_bottom_n : int
-        Active only when ``residual=True``: number of extreme points (by
-        improvement) to label at top and bottom respectively.
+    label_top_n : int
+        Active only when ``residual=True``: number of most-improved points
+        to label.
+    label_bottom_n : int
+        Retained for API compatibility; ignored in residual mode (every
+        decreased point is labeled instead).
+    label_far_from_ceiling_n : int
+        Active only when ``residual=True``: number of points furthest below
+        the y = 1 − x ceiling envelope to label (low guided value).
 
     Returns
     -------
@@ -825,8 +850,14 @@ def make_scatter_comparison(
     texts: list = []
 
     if residual:
-        # In residual mode: label exactly top-N + bottom-N by improvement
-        # plus any explicit highlight matches. Preserve red/green rings.
+        # Residual mode label sets:
+        #   1. top-N most improved (delta > 0)            — green ring
+        #   2. every point with delta < 0                 — red ring
+        #   3. N points furthest below the y = 1 − x line — orange ring
+        #   4. highlight_proteins                          — blue ring overlay
+        # The third criterion ranks by 1 − y_col (large = low guided RSCC,
+        # low spot below the ceiling); equivalent to perpendicular distance
+        # below the line up to a constant factor.
         _has_label_col = label_col in df.columns
         _seen_idx: set = set()
 
@@ -846,9 +877,10 @@ def make_scatter_comparison(
                             color="#333333", zorder=10,
                         ))
 
-        if label_bottom_n > 0 and _delta_for_highlight is not None:
-            dec = df.assign(_d=_delta_for_highlight).nsmallest(label_bottom_n, "_d")
+        if _delta_for_highlight is not None:
+            dec = df.assign(_d=_delta_for_highlight)
             dec = dec[dec["_d"] < 0]
+            dec = dec.loc[~dec.index.isin(_seen_idx)]
             if not dec.empty:
                 ax.scatter(
                     dec[x_col], dec[y_col] - dec[x_col],
@@ -862,16 +894,37 @@ def make_scatter_comparison(
                             color="#333333", zorder=10,
                         ))
 
+        if label_far_from_ceiling_n > 0:
+            below_dist = 1.0 - df[y_col]
+            far = df.assign(_b=below_dist).nlargest(label_far_from_ceiling_n, "_b")
+            far = far[far["_b"] > 0]
+            far = far.loc[~far.index.isin(_seen_idx)]
+            if not far.empty:
+                ax.scatter(
+                    far[x_col], far[y_col] - far[x_col],
+                    facecolors=color, s=24, edgecolors="#F57C00", linewidths=1.2, zorder=3,
+                )
+                if _has_label_col:
+                    for _, r in far.iterrows():
+                        _seen_idx.add(r.name)
+                        texts.append(ax.text(
+                            r[x_col], r[y_col] - r[x_col], str(r[label_col]).upper(),
+                            color="#333333", zorder=10,
+                        ))
+
         if highlight_proteins and _has_label_col:
+            # Blue ring overlay; stacks on top of any green/red/orange ring.
             wanted = {p.lower() for p in highlight_proteins}
             picked = df[df[label_col].str.lower().isin(wanted)]
-            picked = picked[~picked.index.isin(_seen_idx)]
             if not picked.empty:
                 ax.scatter(
                     picked[x_col], picked[y_col] - picked[x_col],
                     facecolors=color, s=24, edgecolors="#1565C0", linewidths=1.2, zorder=4,
                 )
                 for _, r in picked.iterrows():
+                    if r.name in _seen_idx:
+                        continue
+                    _seen_idx.add(r.name)
                     texts.append(ax.text(
                         r[x_col], r[y_col] - r[x_col], str(r[label_col]).upper(),
                         color="#333333", zorder=10,
@@ -1052,10 +1105,11 @@ def make_rscc_scatter(
 ) -> plt.Figure:
     """Per-model residual plot: baseline RSCC vs improvement (guided − baseline).
 
-    ``df`` must contain a ``label`` column formatted ``"<PDB> <start>-<end>"``
-    as produced by the RSCC scatter cell in ``02_fit_quality.py``. Only the
-    top-5 improved + bottom-5 decreased selections (plus any
-    ``highlight_proteins``) are labeled to keep the figure readable.
+    ``df`` must contain a ``label`` column formatted ``"<PDB> <range>"``
+    as produced by the RSCC scatter cell in ``02_fit_quality.py``. Four
+    label sets are drawn: top-3 most improved, every decreased point, the
+    5 points furthest below the y = 1 − x ceiling, and the manually
+    highlighted ``6B8X 181-183`` and ``5MHX 162-164`` selections.
     """
     return make_scatter_comparison(
         df,
@@ -1066,14 +1120,13 @@ def make_rscc_scatter(
         y_label="Improvement (Guided − Baseline RSCC)",
         title=f"{MODEL_DISPLAY.get(model_name, model_name)}: RSCC Improvement Over Baseline",
         delta_col="delta_rscc",
-        # Altloc-resolved core of the most flexible large loop for each protein.
-        highlight_proteins=["6B8X 181-183", "5MHX 162-164"],
         label_col="label",
         show_marginal_kde=True,
         xlim=(0.0, 1.0),
         residual=True,
-        label_top_n=5,
-        label_bottom_n=5,
+        label_top_n=3,
+        label_far_from_ceiling_n=5,
+        highlight_proteins=["6B8X 181-183", "5MHX 162-164"],
     )
 
 
@@ -1440,8 +1493,9 @@ def make_aggregated_scatter(
     xlim: tuple[float, float] | None = None,
     ylim: tuple[float, float] | None = None,
     residual: bool = False,
-    label_top_n: int = 5,
+    label_top_n: int = 3,
     label_bottom_n: int = 5,
+    label_far_from_ceiling_n: int = 5,
 ) -> plt.Figure:
     """Scatter plot with asymmetric IQR error bars for cross-model aggregations.
 
@@ -1470,9 +1524,14 @@ def make_aggregated_scatter(
     sqrt(sd_g^2 + sd_b^2), assuming the baseline and guided per-protein
     estimates are independent — this is an approximation: in practice the two
     share most of the same models, so the true residual SD is somewhat smaller.
-    Marker styling switches to small, un-edged, alpha=0.3 dots, and only
-    ``label_top_n`` most improved + ``label_bottom_n`` most decreased points
-    plus any ``highlight_proteins`` matches are labelled.
+    Marker styling switches to small, un-edged, alpha=0.3 dots. In residual
+    mode four label sets are drawn: (a) the ``label_top_n`` most improved
+    (green ring), (b) every point with delta < 0 (red ring), (c) the
+    ``label_far_from_ceiling_n`` points furthest below the y = 1 − x ceiling
+    (orange ring), and (d) any point whose ``label_col`` value matches an
+    entry in ``highlight_proteins`` (blue ring overlay, stacked on top of
+    the other rings). ``label_bottom_n`` is retained for API compatibility
+    but ignored in residual mode.
     """
     if show_marginal_kde:
         fig = plt.figure(figsize=(6, 7.5))
@@ -1579,7 +1638,12 @@ def make_aggregated_scatter(
         return agg_df.loc[idx, y_col]
 
     if residual:
-        # Residual mode: label exactly top-N + bottom-N + highlight matches.
+        # Residual mode label sets:
+        #   1. top-N most improved (delta > 0)            — green ring
+        #   2. every point with delta < 0                 — red ring
+        #   3. N points furthest below the y = 1 − x line — orange ring
+        #   4. highlight_proteins                          — blue ring overlay
+        # Distance below ceiling = 1 − y_col (large = low guided value).
         _seen_idx: set = set()
 
         if label_top_n > 0:
@@ -1601,18 +1665,37 @@ def make_aggregated_scatter(
                             color="#333333", zorder=10,
                         ))
 
-        if label_bottom_n > 0:
-            dec_idx = _delta.nsmallest(label_bottom_n).index
-            dec_idx = [i for i in dec_idx if _delta.loc[i] < 0]
-            if dec_idx:
-                dec = agg_df.loc[dec_idx]
+        dec_mask = _delta < 0
+        dec_idx = [i for i in agg_df.index[dec_mask] if i not in _seen_idx]
+        if dec_idx:
+            dec = agg_df.loc[dec_idx]
+            ax.scatter(
+                dec[x_col], _yp(dec.index),
+                facecolors=point_color, s=32,
+                edgecolors="#D32F2F", linewidths=1.2, zorder=5,
+            )
+            if label_col in agg_df.columns:
+                for i in dec_idx:
+                    _seen_idx.add(i)
+                    texts.append(ax.text(
+                        agg_df.loc[i, x_col], _yp(i),
+                        str(agg_df.loc[i, label_col]).upper(),
+                        color="#333333", zorder=10,
+                    ))
+
+        if label_far_from_ceiling_n > 0:
+            below_dist = 1.0 - agg_df[y_col]
+            far_idx = below_dist.nlargest(label_far_from_ceiling_n).index
+            far_idx = [i for i in far_idx if below_dist.loc[i] > 0 and i not in _seen_idx]
+            if far_idx:
+                far = agg_df.loc[far_idx]
                 ax.scatter(
-                    dec[x_col], _yp(dec.index),
+                    far[x_col], _yp(far.index),
                     facecolors=point_color, s=32,
-                    edgecolors="#D32F2F", linewidths=1.2, zorder=5,
+                    edgecolors="#F57C00", linewidths=1.2, zorder=5,
                 )
                 if label_col in agg_df.columns:
-                    for i in dec_idx:
+                    for i in far_idx:
                         _seen_idx.add(i)
                         texts.append(ax.text(
                             agg_df.loc[i, x_col], _yp(i),
@@ -1621,18 +1704,26 @@ def make_aggregated_scatter(
                         ))
 
         if highlight_proteins and label_col in agg_df.columns:
+            # Blue ring overlay; stacks on top of any green/red/orange ring.
             wanted = {p.lower() for p in highlight_proteins}
-            picked = agg_df[agg_df[label_col].str.lower().isin(wanted)]
-            picked = picked[~picked.index.isin(_seen_idx)]
-            if not picked.empty:
+            picked_idx = [
+                i for i in agg_df.index
+                if str(agg_df.loc[i, label_col]).lower() in wanted
+            ]
+            if picked_idx:
+                picked = agg_df.loc[picked_idx]
                 ax.scatter(
                     picked[x_col], _yp(picked.index),
                     facecolors=point_color, s=32,
-                    edgecolors="#1565C0", linewidths=1.2, zorder=5,
+                    edgecolors="#1565C0", linewidths=1.2, zorder=6,
                 )
-                for i, r in picked.iterrows():
+                for i in picked_idx:
+                    if i in _seen_idx:
+                        continue
+                    _seen_idx.add(i)
                     texts.append(ax.text(
-                        r[x_col], _yp(i), str(r[label_col]).upper(),
+                        agg_df.loc[i, x_col], _yp(i),
+                        str(agg_df.loc[i, label_col]).upper(),
                         color="#333333", zorder=10,
                     ))
 

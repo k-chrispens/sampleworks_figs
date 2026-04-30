@@ -18,6 +18,7 @@ def _():
     from analysis_helpers import (
         add_simplified_metadata_columns,
         filter_by_model_group,
+        format_residue_range,
         get_rscc_nan_proteins,
         load_rscc,
         load_lddt,
@@ -50,6 +51,7 @@ def _():
         OPTIMAL_GW,
         add_simplified_metadata_columns,
         filter_by_model_group,
+        format_residue_range,
         get_rscc_nan_proteins,
         load_classification,
         load_lddt,
@@ -98,9 +100,12 @@ def _(mo):
     | -- | RSCC scatter per model | `rscc_scatterplots/rscc_scatter_{model}.svg` |
     | -- | RSCC vs LDDT scatter per model | `cross_metric_scatterplots/rscc_vs_lddt_{model}.svg` |
     | -- | Aggregated RSCC scatter | `rscc_scatterplots/rscc_scatter_aggregated_all_models.svg` |
-    | -- | RSCC by classification per model | `rscc_scatterplots/rscc_by_class_{model}.svg` |
-    | -- | RSCC by classification aggregated | `rscc_scatterplots/rscc_by_class_aggregated.svg` |
-    | -- | RSCC by classification combined grid | `rscc_scatterplots/rscc_by_class_grid_all_models.svg` |
+    | -- | RSCC by classification per model (excl. domain shift) | `rscc_scatterplots/rscc_by_class_{model}.svg` |
+    | -- | RSCC by classification aggregated (excl. domain shift) | `rscc_scatterplots/rscc_by_class_aggregated.svg` |
+    | -- | RSCC by classification combined grid (excl. domain shift) | `rscc_scatterplots/rscc_by_class_grid_all_models.svg` |
+    | -- | RSCC for domain shift per model (whole-domain RSCC) | `rscc_scatterplots/rscc_by_class_domain_shift_{model}.svg` |
+    | -- | RSCC for domain shift aggregated (whole-domain RSCC) | `rscc_scatterplots/rscc_by_class_domain_shift_aggregated.svg` |
+    | -- | RSCC for domain shift combined grid (whole-domain RSCC) | `rscc_scatterplots/rscc_by_class_domain_shift_grid_all_models.svg` |
     | -- | Aggregated LDDT scatter | `rscc_scatterplots/lddt_scatter_aggregated_all_models.svg` |
     | -- | Aggregated RSCC vs LDDT scatter | `rscc_scatterplots/rscc_vs_lddt_aggregated_all_models.svg` |
     | 09 | LDDT baseline distribution | `09_lddt_to_ref_baseline_distribution[_variant].svg` |
@@ -316,9 +321,7 @@ def _(MODEL_DISPLAY, mo):
 
 
 @app.cell
-def _(OPTIMAL_GW, pd, rscc):
-    import re as _re
-
+def _(OPTIMAL_GW, format_residue_range, pd, rscc):
     _gw_df = pd.DataFrame(list(OPTIMAL_GW.items()), columns=["model_name", "optimal_gw"])
     _region = rscc[rscc["selection_name"] != "all altloc"]
 
@@ -340,12 +343,8 @@ def _(OPTIMAL_GW, pd, rscc):
         rscc_scatter_df["rscc_optimal"] - rscc_scatter_df["rscc_baseline"]
     )
 
-    def _res_range(sel: str) -> str:
-        m = _re.search(r"resi\s+([\d-]+)", str(sel))
-        return m.group(1) if m else str(sel)
-
     rscc_scatter_df["label"] = rscc_scatter_df.apply(
-        lambda r: f"{str(r['protein']).upper()} {_res_range(r['selection'])}", axis=1,
+        lambda r: f"{str(r['protein']).upper()} {format_residue_range(r['selection'])}", axis=1,
     )
     return (rscc_scatter_df,)
 
@@ -473,9 +472,7 @@ def _(auto_save, make_aggregated_scatter, mo, rscc_scatter_df, save_fig):
         show_marginal_kde=True,
         show_errors=False,
         point_color="#377EB8",
-        label_top_n=5, label_bottom_n=5,
-        # The altloc-resolved selections sitting inside the most flexible large loop
-        # for each protein (6B8X 178-193 -> resolved 181-183; 5MHX 158-167 -> resolved 162-164).
+        label_top_n=3, label_far_from_ceiling_n=5,
         highlight_proteins=["6B8X 181-183", "5MHX 162-164"],
         xlim=(0.0, 1.0),
     )
@@ -495,12 +492,14 @@ def _(
     OPTIMAL_GW,
     auto_save,
     classification_df,
+    load_rscc,
     make_classified_aggregated_scatter,
     make_classified_scatter,
     make_classified_scatter_grid,
     merge_classification_by_containment,
     mo,
     model_slug,
+    nan_rscc_proteins,
     pd,
     plt,
     rscc,
@@ -508,10 +507,11 @@ def _(
     save_fig,
     scatter_model,
 ):
-    # Build rscc_by_class_df
+    # Build rscc_by_class_df for non-domain-shift classes (small-segment data)
     _gw_df = pd.DataFrame(list(OPTIMAL_GW.items()), columns=["model_name", "optimal_gw"])
     _region = rscc[rscc["selection_name"] != "all altloc"].copy()
     _region_cls = merge_classification_by_containment(_region, classification_df)
+    _region_cls = _region_cls[_region_cls["classification"] != "domain_shift"]
 
     _baseline = (
         _region_cls.query("guidance_weight == 0.0")
@@ -527,7 +527,33 @@ def _(
     _rscc_by_class_df = _baseline.merge(_optimal, on=["protein", "selection", "model_name"])
     _rscc_by_class_df["delta_rscc"] = _rscc_by_class_df["rscc_optimal"] - _rscc_by_class_df["rscc_baseline"]
 
-    # Per-model batch save
+    # Domain shift uses whole-domain RSCC from the legacy backup CSV; the
+    # small-segment file in initial40results/ only contains 1-3 residue
+    # altloc-resolved selections inside the domain, which under-samples the
+    # conformational change for this category.
+    _rscc_legacy = load_rscc("initial40results/rscc_results.csv.bak")
+    if nan_rscc_proteins:
+        _rscc_legacy = _rscc_legacy[~_rscc_legacy["protein"].isin(nan_rscc_proteins)]
+    _ds_cls = classification_df.query("classification == 'domain_shift'")[
+        ["protein", "selection", "classification"]
+    ]
+    _legacy_region = _rscc_legacy.merge(_ds_cls, on=["protein", "selection"], how="inner")
+
+    _baseline_ds = (
+        _legacy_region.query("guidance_weight == 0.0")
+        [["protein", "selection", "model_name", "rscc", "classification"]]
+        .rename(columns={"rscc": "rscc_baseline"})
+    )
+    _optimal_ds = (
+        _legacy_region.merge(_gw_df, on="model_name")
+        .query("guidance_weight == optimal_gw")
+        [["protein", "selection", "model_name", "rscc"]]
+        .rename(columns={"rscc": "rscc_optimal"})
+    )
+    _rscc_ds_df = _baseline_ds.merge(_optimal_ds, on=["protein", "selection", "model_name"])
+    _rscc_ds_df["delta_rscc"] = _rscc_ds_df["rscc_optimal"] - _rscc_ds_df["rscc_baseline"]
+
+    # Per-model batch save (non-domain-shift classes)
     if save_all_scatter.value:
         for _model in sorted(_rscc_by_class_df["model_name"].unique()):
             _mdf = _rscc_by_class_df[_rscc_by_class_df["model_name"] == _model]
@@ -536,6 +562,13 @@ def _(
             _fig = make_classified_scatter(_mdf, _model)
             save_fig(_fig, f"rscc_scatterplots/rscc_by_class_{model_slug(_model)}.svg")
             plt.close(_fig)
+        for _model in sorted(_rscc_ds_df["model_name"].unique()):
+            _mdf_ds = _rscc_ds_df[_rscc_ds_df["model_name"] == _model]
+            if _mdf_ds.empty:
+                continue
+            _fig_ds = make_classified_scatter(_mdf_ds, _model)
+            save_fig(_fig_ds, f"rscc_scatterplots/rscc_by_class_domain_shift_{model_slug(_model)}.svg")
+            plt.close(_fig_ds)
 
     # Show current model
     _cur = scatter_model.value
@@ -544,7 +577,14 @@ def _(
     if auto_save.value:
         save_fig(_fig_cur, f"rscc_scatterplots/rscc_by_class_{model_slug(_cur)}.svg")
 
-    # Aggregated scatter
+    _cur_ds_df = _rscc_ds_df[_rscc_ds_df["model_name"] == _cur]
+    _fig_cur_ds = (
+        make_classified_scatter(_cur_ds_df, _cur) if not _cur_ds_df.empty else None
+    )
+    if auto_save.value and _fig_cur_ds is not None:
+        save_fig(_fig_cur_ds, f"rscc_scatterplots/rscc_by_class_domain_shift_{model_slug(_cur)}.svg")
+
+    # Aggregated scatter (non-domain-shift)
     _rscc_by_class_agg = (
         _rscc_by_class_df
         .groupby(["protein", "selection", "classification"], as_index=False)
@@ -566,6 +606,30 @@ def _(
     if auto_save.value:
         save_fig(_fig_agg, "rscc_scatterplots/rscc_by_class_aggregated.png")
 
+    # Aggregated scatter (domain-shift)
+    _rscc_ds_agg = (
+        _rscc_ds_df
+        .groupby(["protein", "selection", "classification"], as_index=False)
+        .agg(
+            x_mean=("rscc_baseline", "median"),
+            y_mean=("rscc_optimal", "median"),
+            n=("model_name", "count"),
+        )
+    )
+    _rscc_ds_agg = _rscc_ds_agg[_rscc_ds_agg["n"] >= 3]
+    _fig_agg_ds = (
+        make_classified_aggregated_scatter(
+            _rscc_ds_agg,
+            x_err_lo_col=None, x_err_hi_col=None,
+            y_err_lo_col=None, y_err_hi_col=None,
+            x_label="Baseline RSCC (median across models)",
+            y_label="Median Improvement (Guided - Baseline)",
+            show_errors=False,
+        ) if not _rscc_ds_agg.empty else None
+    )
+    if auto_save.value and _fig_agg_ds is not None:
+        save_fig(_fig_agg_ds, "rscc_scatterplots/rscc_by_class_domain_shift_aggregated.png")
+
     # Combined grid: rows = main models only, cols = classes, shared x and y axes.
     _fig_grid = make_classified_scatter_grid(
         _rscc_by_class_df.query("model_name not in @MODELS_ALT"),
@@ -573,14 +637,33 @@ def _(
     if auto_save.value:
         save_fig(_fig_grid, "rscc_scatterplots/rscc_by_class_grid_all_models.svg")
 
-    mo.vstack([
+    _ds_grid_data = _rscc_ds_df.query("model_name not in @MODELS_ALT")
+    _fig_grid_ds = (
+        make_classified_scatter_grid(_ds_grid_data) if not _ds_grid_data.empty else None
+    )
+    if auto_save.value and _fig_grid_ds is not None:
+        save_fig(_fig_grid_ds, "rscc_scatterplots/rscc_by_class_domain_shift_grid_all_models.svg")
+
+    _stack_items = [
         mo.md("""## RSCC by Conformational Type -- Baseline vs Optimal Guidance
         Per-selection scatter colored by conformational change classification.
-        `figures/rscc_scatterplots/rscc_by_class_{model}.svg`, `rscc_by_class_aggregated.svg`, and `rscc_by_class_grid_all_models.svg`"""),
+        Domain-shift entries use the whole-domain selection RSCC (from the
+        legacy backup CSV) and are plotted separately below.
+        `figures/rscc_scatterplots/rscc_by_class_{model}.svg`, `rscc_by_class_aggregated.svg`,
+        `rscc_by_class_grid_all_models.svg`,
+        `rscc_by_class_domain_shift_{model}.svg`, `rscc_by_class_domain_shift_aggregated.svg`,
+        and `rscc_by_class_domain_shift_grid_all_models.svg`"""),
         _fig_cur,
         _fig_agg,
         _fig_grid,
-    ])
+    ]
+    if _fig_cur_ds is not None:
+        _stack_items.append(_fig_cur_ds)
+    if _fig_agg_ds is not None:
+        _stack_items.append(_fig_agg_ds)
+    if _fig_grid_ds is not None:
+        _stack_items.append(_fig_grid_ds)
+    mo.vstack(_stack_items)
     return
 
 
@@ -589,14 +672,13 @@ def _(
     OPTIMAL_GW,
     auto_save,
     cross_metric_df,
+    format_residue_range,
     lddt_results_1,
     make_aggregated_scatter,
     mo,
     pd,
     save_fig,
 ):
-    import re as _re
-
     _gw_df = pd.DataFrame(list(OPTIMAL_GW.items()), columns=["model_name", "optimal_gw"])
 
     # Build per-(protein, selection, model) baseline + optimal LDDT
@@ -627,12 +709,8 @@ def _(
     )
     _lddt_agg_df = _lddt_agg_df[_lddt_agg_df["n"] >= 3]
 
-    def _res_range(sel: str) -> str:
-        m = _re.search(r"resi\s+([\d-]+)", str(sel))
-        return m.group(1) if m else str(sel)
-
     _lddt_agg_df["label"] = _lddt_agg_df.apply(
-        lambda r: f"{str(r['protein']).upper()} {_res_range(r['selection'])}", axis=1,
+        lambda r: f"{str(r['protein']).upper()} {format_residue_range(r['selection'])}", axis=1,
     )
 
     _fig_lddt = make_aggregated_scatter(
@@ -644,9 +722,7 @@ def _(
         label_col="label",
         residual=True,
         show_marginal_kde=True, show_errors=False, point_color="#377EB8",
-        label_top_n=5, label_bottom_n=5,
-        # Altloc-resolved selections inside the most flexible large loop of each protein
-        # (6B8X 178-193 -> resolved 181-183; 5MHX 158-167 -> resolved 162-164).
+        label_top_n=3, label_far_from_ceiling_n=5,
         highlight_proteins=["6B8X 181-183", "5MHX 162-164"],
         xlim=(0.0, 1.0),
     )
