@@ -1494,7 +1494,7 @@ def make_aggregated_scatter(
     ylim: tuple[float, float] | None = None,
     residual: bool = False,
     label_top_n: int = 3,
-    label_bottom_n: int = 5,
+    label_bottom_n: int | None = None,
     label_far_from_ceiling_n: int = 5,
 ) -> plt.Figure:
     """Scatter plot with asymmetric IQR error bars for cross-model aggregations.
@@ -1526,12 +1526,12 @@ def make_aggregated_scatter(
     share most of the same models, so the true residual SD is somewhat smaller.
     Marker styling switches to small, un-edged, alpha=0.3 dots. In residual
     mode four label sets are drawn: (a) the ``label_top_n`` most improved
-    (green ring), (b) every point with delta < 0 (red ring), (c) the
-    ``label_far_from_ceiling_n`` points furthest below the y = 1 − x ceiling
-    (orange ring), and (d) any point whose ``label_col`` value matches an
-    entry in ``highlight_proteins`` (blue ring overlay, stacked on top of
-    the other rings). ``label_bottom_n`` is retained for API compatibility
-    but ignored in residual mode.
+    (green ring), (b) decreased points (red ring) — every point with
+    delta < 0 by default, or only the ``label_bottom_n`` most decreased when
+    that argument is given, (c) the ``label_far_from_ceiling_n`` points
+    furthest below the y = 1 − x ceiling (orange ring), and (d) any point
+    whose ``label_col`` value matches an entry in ``highlight_proteins``
+    (blue ring overlay, stacked on top of the other rings).
     """
     if show_marginal_kde:
         fig = plt.figure(figsize=(6, 7.5))
@@ -1666,7 +1666,11 @@ def make_aggregated_scatter(
                         ))
 
         dec_mask = _delta < 0
-        dec_idx = [i for i in agg_df.index[dec_mask] if i not in _seen_idx]
+        if label_bottom_n is not None and label_bottom_n > 0:
+            dec_ranked = _delta[dec_mask].nsmallest(label_bottom_n).index
+            dec_idx = [i for i in dec_ranked if i not in _seen_idx]
+        else:
+            dec_idx = [i for i in agg_df.index[dec_mask] if i not in _seen_idx]
         if dec_idx:
             dec = agg_df.loc[dec_idx]
             ax.scatter(

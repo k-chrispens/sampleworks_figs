@@ -722,7 +722,7 @@ def _(
         label_col="label",
         residual=True,
         show_marginal_kde=True, show_errors=False, point_color="#377EB8",
-        label_top_n=3, label_far_from_ceiling_n=5,
+        label_top_n=3, label_bottom_n=5, label_far_from_ceiling_n=3,
         highlight_proteins=["6B8X 181-183", "5MHX 162-164"],
         xlim=(0.0, 1.0),
     )
