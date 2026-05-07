@@ -125,8 +125,18 @@ def _(mo):
     )
     auto_save = mo.ui.switch(label="Auto-save figures", value=False)
     exclude_nan_rscc = mo.ui.switch(label="Exclude NaN-RSCC proteins", value=False)
-    mo.hstack([model_group, smoothing, auto_save, exclude_nan_rscc], justify="start", gap=1)
-    return auto_save, exclude_nan_rscc, model_group, smoothing
+    cumulative = mo.ui.switch(label="Cumulative (fig 04_09)", value=False)
+    cumulative_style = mo.ui.radio(
+        options={"Smoothed (KDE)": "kde", "ECDF (step)": "ecdf"},
+        value="Smoothed (KDE)",
+        label="Cumulative style",
+        inline=True,
+    )
+    mo.hstack(
+        [model_group, smoothing, auto_save, exclude_nan_rscc, cumulative, cumulative_style],
+        justify="start", gap=1,
+    )
+    return auto_save, cumulative, cumulative_style, exclude_nan_rscc, model_group, smoothing
 
 
 @app.cell
@@ -192,6 +202,8 @@ def _(auto_save, save_model_legend):
 @app.cell
 def _(
     auto_save,
+    cumulative,
+    cumulative_style,
     filter_by_model_group,
     lddt_results_1,
     make_combined_baseline_distributions,
@@ -209,7 +221,10 @@ def _(
         " and model_name not in @MODELS_ALT"
     )
     fig_04_09 = make_combined_baseline_distributions(
-        _rscc_data, _lddt_data, smoothing=smoothing.value,
+        _rscc_data, _lddt_data,
+        smoothing=smoothing.value,
+        cumulative=cumulative.value,
+        cumulative_style=cumulative_style.value,
     )
     if auto_save.value:
         save_fig(fig_04_09, f"04_09_baseline_distributions{_suffix}.png")
@@ -422,7 +437,7 @@ def _(
     _scatter_kwargs = dict(
         x_col="rscc", y_col="avg_silhouette_to_ref",
         x_label="RSCC",
-        y_label="Avg. Silhouette to Ref",
+        y_label="Clustering Score",
         draw_regression=True, label_all=True, equal_aspect=False,
     )
 
@@ -716,9 +731,9 @@ def _(
     _fig_lddt = make_aggregated_scatter(
         _lddt_agg_df,
         x_col="x_med", y_col="y_med",
-        x_label="Baseline Avg Silhouette to Ref (median across models)",
+        x_label="Baseline Clustering Score (median across models)",
         y_label="Median Improvement (Guided - Baseline)",
-        title="Avg Silhouette to Ref Improvement Over Baseline",
+        title="Clustering Score Improvement Over Baseline",
         label_col="label",
         residual=True,
         show_marginal_kde=True, show_errors=False, point_color="#377EB8",
@@ -744,8 +759,8 @@ def _(
         _cross_agg_df,
         x_col="x_med", y_col="y_med",
         x_label="Guided RSCC (median across models)",
-        y_label="Guided Avg Silhouette to Ref (median across models)",
-        title="RSCC vs Avg Silhouette to Ref",
+        y_label="Guided Clustering Score (median across models)",
+        title="RSCC vs Clustering Score",
         draw_diagonal=False, equal_aspect=False,
         show_errors=False,
         highlight_top_n=3, highlight_decreased=True,

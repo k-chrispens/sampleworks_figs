@@ -201,10 +201,10 @@ NICE_XLABELS = {
     "delta_outlier_fraction_bond_angles": "Change in Bond Angle Outlier Fraction (Guided − Baseline)",
     "delta_outlier_fraction_bond_lengths": "Change in Bond Length Outlier Fraction (Guided − Baseline)",
     "delta_rscc": "Change in RSCC (Guided − Baseline)",
-    "delta_silhouette_to_ref": "Change in Silhouette Score (Guided − Baseline)",
+    "delta_silhouette_to_ref": "Change in Clustering Score (Guided − Baseline)",
     "clashscore": "Clashscore (steric clashes per 1000 atoms)",
     "rscc": "Real-Space Correlation Coefficient (RSCC)",
-    "avg_silhouette_to_ref": "Avg. Silhouette Score to Reference",
+    "avg_silhouette_to_ref": "Clustering Score",
     "ramachandran_z_score": "Ramachandran Z-Score",
     "torsion_z_score": "Torsion Z-Score",
     "outlier_fraction_bond_angles": "Bond Angle Outlier Fraction",
@@ -2097,11 +2097,21 @@ def make_combined_baseline_distributions(
     rscc_col: str = "rscc",
     lddt_col: str = "avg_silhouette_to_ref",
     rscc_xlabel: str = "RSCC",
-    lddt_xlabel: str = "Average Silhouette Score to Reference (LDDT Clustering)",
+    lddt_xlabel: str = "Clustering Score",
     smoothing: float = 0.15,
     bin_width: float = 0.02,
+    cumulative: bool = False,
+    cumulative_style: str = "kde",
 ) -> plt.Figure:
-    """Two baseline distribution panels (RSCC on top, LDDT below) sharing one legend."""
+    """Two baseline distribution panels (RSCC on top, LDDT below) sharing one legend.
+
+    When ``cumulative`` is True, panels switch to a cumulative view; ``cumulative_style``
+    selects ``"kde"`` (smoothed cumulative KDE, respects ``smoothing``) or ``"ecdf"``
+    (empirical CDF step plot).
+    """
+    if cumulative_style not in ("kde", "ecdf"):
+        raise ValueError(f"cumulative_style must be 'kde' or 'ecdf', got {cumulative_style!r}")
+
     model_order = sorted(
         set(rscc_df["model_name"].unique()) | set(lddt_df["model_name"].unique())
     )
@@ -2119,25 +2129,53 @@ def make_combined_baseline_distributions(
             if data.empty:
                 continue
             color = MODEL_PALETTE.get(model, "#888888")
-            sns.kdeplot(
-                data=data, x=col, ax=ax,
-                fill=True, alpha=0.35, linewidth=1.5,
-                color=color, bw_adjust=smoothing,
-            )
+            if not cumulative:
+                sns.kdeplot(
+                    data=data, x=col, ax=ax,
+                    fill=True, alpha=0.35, linewidth=1.5,
+                    color=color, bw_adjust=smoothing,
+                )
+            elif cumulative_style == "kde":
+                sns.kdeplot(
+                    data=data, x=col, ax=ax,
+                    cumulative=True, fill=False, linewidth=1.8,
+                    color=color, bw_adjust=smoothing,
+                )
+            else:
+                sns.ecdfplot(
+                    data=data, x=col, ax=ax,
+                    color=color, linewidth=1.8,
+                )
 
         ax.set_xlabel(xlabel)
-        ax.set_ylabel("Density")
+        if not cumulative:
+            ax.set_ylabel("Density")
+        elif cumulative_style == "kde":
+            ax.set_ylabel("Cumulative Density")
+        else:
+            ax.set_ylabel("Proportion")
         for spine in ["top", "right"]:
             ax.spines[spine].set_visible(False)
 
-    legend_handles = [
-        Patch(
-            facecolor=MODEL_PALETTE.get(m, "#888888"),
-            alpha=0.35,
-            label=MODEL_DISPLAY.get(m, m),
-        )
-        for m in model_order
-    ]
+    if cumulative:
+        legend_handles = [
+            Line2D(
+                [0], [0],
+                color=MODEL_PALETTE.get(m, "#888888"),
+                linewidth=1.8,
+                label=MODEL_DISPLAY.get(m, m),
+            )
+            for m in model_order
+        ]
+    else:
+        legend_handles = [
+            Patch(
+                facecolor=MODEL_PALETTE.get(m, "#888888"),
+                alpha=0.35,
+                label=MODEL_DISPLAY.get(m, m),
+            )
+            for m in model_order
+        ]
     ax_rscc.legend(
         handles=legend_handles,
         loc="upper right",
@@ -2311,7 +2349,7 @@ def make_tradeoff_grid(
     if metric_rows is None:
         metric_rows = [
             ("delta_rscc", "Δ RSCC vs baseline"),
-            ("delta_silhouette_to_ref", "Δ LDDT silhouette-to-ref vs baseline"),
+            ("delta_silhouette_to_ref", "Δ Clustering Score vs baseline"),
         ]
     if model_order is None:
         model_order = [
@@ -2511,7 +2549,7 @@ def annotate_tradeoff_highlights(
     if metric_rows is None:
         metric_rows = [
             ("delta_rscc", "Δ RSCC vs baseline"),
-            ("delta_silhouette_to_ref", "Δ LDDT silhouette-to-ref vs baseline"),
+            ("delta_silhouette_to_ref", "Δ Clustering Score vs baseline"),
         ]
     if model_order is None:
         model_order = [
