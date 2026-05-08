@@ -18,27 +18,43 @@ def _():
     import pandas as pd
     from analysis_helpers import (
         add_simplified_metadata_columns,
+        build_training_bias_df,
+        filter_by_model_group,
         get_rscc_nan_proteins,
         load_and_tag_path_csv,
-        tag_path_dataframe,
+        load_deposition_cutoffs,
+        load_lddt,
         load_rscc,
+        load_training_cluster_counts,
+        make_aggregated_spiral_figure,
         make_delta_frame,
         make_spiral_figure,
-        make_aggregated_spiral_figure,
+        make_training_bias_empty_cluster_strip,
+        make_training_bias_scatter,
         model_slug,
         save_fig,
+        tag_path_dataframe,
         MODEL_DISPLAY,
+        OPTIMAL_GW,
     )
 
     return (
         MODEL_DISPLAY,
+        OPTIMAL_GW,
         add_simplified_metadata_columns,
+        build_training_bias_df,
+        filter_by_model_group,
         get_rscc_nan_proteins,
         load_and_tag_path_csv,
+        load_deposition_cutoffs,
+        load_lddt,
         load_rscc,
+        load_training_cluster_counts,
         make_aggregated_spiral_figure,
         make_delta_frame,
         make_spiral_figure,
+        make_training_bias_empty_cluster_strip,
+        make_training_bias_scatter,
         model_slug,
         np,
         pd,
@@ -63,6 +79,10 @@ def _(MODEL_DISPLAY, mo):
     | 12-19 | Spiral trajectory per model | `{nn}_spiral_{model}.svg` |
     | 20 | Aggregated spiral (all models) | `20_aggregated_spiral_all.svg` |
     | 21-28 | Aggregated spiral per model | `{nn}_aggregated_spiral_{model}.svg` |
+    | 29 | Training-distribution bias scatter (baseline) | `29_training_bias_scatter_baseline.svg` |
+    | 30 | Training-distribution bias scatter (optimal gw) | `30_training_bias_scatter_optimal.svg` |
+    | 31 | Empty-cluster B-occupancy by cutoff (baseline) | `31_training_bias_empty_cluster_baseline.svg` |
+    | 32 | Empty-cluster B-occupancy by cutoff (optimal gw) | `32_training_bias_empty_cluster_optimal.svg` |
     """)
 
     _options = {
@@ -281,6 +301,121 @@ def _(
         Per-model aggregated trajectories with median + IQR.
         `figures/21_aggregated_spiral_boltz2_xrd.svg` through `figures/28_aggregated_spiral_rf3_chiral_off.svg`"""),
         _agg_fig,
+    ])
+    return
+
+
+@app.cell
+def _(
+    filter_by_model_group,
+    load_deposition_cutoffs,
+    load_lddt,
+    load_training_cluster_counts,
+):
+    cluster_df = load_training_cluster_counts()
+    cutoffs_df = load_deposition_cutoffs()
+    lddt_for_bias, _ = filter_by_model_group(
+        load_lddt("initial40results/lddt_results.csv"), "main"
+    )
+    return cluster_df, cutoffs_df, lddt_for_bias
+
+
+@app.cell
+def _(
+    OPTIMAL_GW,
+    build_training_bias_df,
+    cluster_df,
+    cutoffs_df,
+    lddt_for_bias,
+):
+    _MAIN_MODELS = ["boltz2X-RAY", "boltz2MD", "protenix", "rf3"]
+    bias_baseline_df = build_training_bias_df(
+        lddt_for_bias, cluster_df, cutoffs_df,
+        {m: 0.0 for m in _MAIN_MODELS},
+    )
+    bias_optimal_df = build_training_bias_df(
+        lddt_for_bias, cluster_df, cutoffs_df,
+        {m: OPTIMAL_GW[m] for m in _MAIN_MODELS},
+    )
+    return bias_baseline_df, bias_optimal_df
+
+
+@app.cell
+def _(auto_save, bias_baseline_df, make_training_bias_scatter, mo, save_fig):
+    _fig = make_training_bias_scatter(
+        bias_baseline_df, title="Baseline (no guidance)"
+    )
+    if auto_save.value:
+        save_fig(_fig, "29_training_bias_scatter_baseline.svg")
+    mo.vstack([
+        mo.md("""## Figure 29 -- Training-Distribution Bias (Baseline)
+        Predicted B occupancy vs. 1 - (fraction A in pre-cutoff training cluster).
+        Points on `y = x` track the training prior; points on `y = 0.5` track the
+        symmetric (0.5/0.5) ground-truth density.
+        `figures/29_training_bias_scatter_baseline.svg`"""),
+        _fig,
+    ])
+    return
+
+
+@app.cell
+def _(auto_save, bias_optimal_df, make_training_bias_scatter, mo, save_fig):
+    _fig = make_training_bias_scatter(
+        bias_optimal_df, title="Optimal guidance (per-model OPTIMAL_GW)"
+    )
+    if auto_save.value:
+        save_fig(_fig, "30_training_bias_scatter_optimal.svg")
+    mo.vstack([
+        mo.md("""## Figure 30 -- Training-Distribution Bias (Optimal Guidance)
+        Same axes as Fig. 29 but at each model's optimal guidance weight; points
+        moving toward `y = 0.5` indicate guidance overcoming training prior.
+        `figures/30_training_bias_scatter_optimal.svg`"""),
+        _fig,
+    ])
+    return
+
+
+@app.cell
+def _(
+    auto_save,
+    bias_baseline_df,
+    make_training_bias_empty_cluster_strip,
+    mo,
+    save_fig,
+):
+    _fig = make_training_bias_empty_cluster_strip(
+        bias_baseline_df, title="Baseline (no guidance)"
+    )
+    if auto_save.value:
+        save_fig(_fig, "31_training_bias_empty_cluster_baseline.svg")
+    mo.vstack([
+        mo.md("""## Figure 31 -- Empty-Cluster B Occupancy (Baseline)
+        Selections whose pre-cutoff training cluster has zero other structures,
+        split into pre-cutoff (cluster of one) vs. post-cutoff depositions.
+        `figures/31_training_bias_empty_cluster_baseline.svg`"""),
+        _fig,
+    ])
+    return
+
+
+@app.cell
+def _(
+    auto_save,
+    bias_optimal_df,
+    make_training_bias_empty_cluster_strip,
+    mo,
+    save_fig,
+):
+    _fig = make_training_bias_empty_cluster_strip(
+        bias_optimal_df, title="Optimal guidance (per-model OPTIMAL_GW)"
+    )
+    if auto_save.value:
+        save_fig(_fig, "32_training_bias_empty_cluster_optimal.svg")
+    mo.vstack([
+        mo.md("""## Figure 32 -- Empty-Cluster B Occupancy (Optimal Guidance)
+        Same as Fig. 31 but with each model at its optimal guidance weight.
+        `figures/32_training_bias_empty_cluster_optimal.svg`"""),
+        _fig,
     ])
     return
 

@@ -42,6 +42,14 @@ plt.rcParams.update({
 OCC_FILTER = "0.5occA_0.5occB"
 OCC_FILTER_ALTLOC = "{'A': 0.5, 'B': 0.5}"
 
+# Pre-cutoff training-distribution analysis. The cutoff matches the date
+# embedded in the training-cluster CSV filename
+# (``max_rmsd_within_rmsd_2021-09-30_1A.csv``). Four proteins from the
+# initial-40 set are absent from the cutoffs CSV; all four are pre-2018
+# depositions, so they are filled in as "Pre".
+TRAINING_CUTOFF_DATE = "2021-09-30"
+_MISSING_CUTOFF_FILL = {"1vme": "Pre", "4ole": "Pre", "5sop": "Pre", "6b8x": "Pre"}
+
 # PyMOL "good" colors (from ~/.pymolrc, cred. Sam Pellock / RFdiffusion)
 COLOR_GOOD_GRAY = "#DCDCDC"
 COLOR_GOOD_DARKBLUE = "#4B5FAA"
@@ -477,6 +485,24 @@ def get_rscc_nan_proteins(
     return set(df.loc[mask, "protein"].unique())
 
 
+def _parse_b_occupancy(s) -> float:
+    """Extract the B-altloc occupancy (second value) from an ``occupancies`` cell.
+
+    The ``occupancies`` column in the LDDT results is stored as the numpy
+    string repr of a 2-element array, e.g. ``"[0.375 0.625]"`` — first value
+    is A, second is B.
+    """
+    if not isinstance(s, str):
+        return np.nan
+    parts = s.strip("[] ").split()
+    if len(parts) < 2:
+        return np.nan
+    try:
+        return float(parts[1])
+    except ValueError:
+        return np.nan
+
+
 def load_lddt(csv_path: str) -> pd.DataFrame:
     """Load LDDT results with graceful missing-file fallback.
 
@@ -595,6 +621,74 @@ def merge_classification_by_containment(
         )
 
     return merged.drop(columns=["_cls_start", "_cls_end", "_cls_selection", "_cls_span"])
+
+
+def load_deposition_cutoffs(
+    path: str = "initial40results/Sampleworks_initial_structures.csv",
+) -> pd.DataFrame:
+    """Load per-protein deposition dates and pre/post-cutoff classification.
+
+    Lowercases the PDB ID, drops duplicate rows, and fills in any proteins
+    missing from the CSV that the analysis still uses (see
+    ``_MISSING_CUTOFF_FILL``). Cutoff date is :data:`TRAINING_CUTOFF_DATE`.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: ``protein`` (lowercase 4-char), ``deposit_date``,
+        ``cutoff_status`` (``"Pre"`` or ``"Post"``).
+    """
+    df = pd.read_csv(path)
+    df = df.rename(columns={
+        "PDB_ID": "protein",
+        "Date_Deposited": "deposit_date",
+        "Pre_post_cutoff": "cutoff_status",
+    })
+    df["protein"] = df["protein"].str.lower()
+    df = df.drop_duplicates(subset=["protein"]).reset_index(drop=True)
+    missing = [p for p in _MISSING_CUTOFF_FILL if p not in set(df["protein"])]
+    if missing:
+        fill_rows = pd.DataFrame({
+            "protein": missing,
+            "deposit_date": [pd.NaT] * len(missing),
+            "cutoff_status": [_MISSING_CUTOFF_FILL[p] for p in missing],
+        })
+        df = pd.concat([df, fill_rows], ignore_index=True)
+        print(
+            f"ℹ️  Filled {len(missing)} protein(s) missing from {path}: "
+            f"{sorted(missing)} → Pre (all are pre-2018 depositions)."
+        )
+    return df[["protein", "deposit_date", "cutoff_status"]]
+
+
+def load_training_cluster_counts(
+    path: str = "max_rmsd_within_rmsd_2021-09-30_1A.csv",
+) -> pd.DataFrame:
+    """Load per-selection pre-cutoff training-cluster counts.
+
+    Lowercases ``protein`` and renames ``selection_part`` → ``selection`` so
+    the frame joins directly onto LDDT/RSCC results. Adds ``frac_a_cluster``
+    (fraction of cluster members within RMSD threshold of altloc A) and
+    ``x_one_minus_fa = 1 − frac_a_cluster``. Both are NaN where the cluster
+    has no near-A and no near-B members (``A == B == 0``).
+    """
+    df = pd.read_csv(path)
+    df["protein"] = df["protein"].str.lower()
+    # The CSV's ``selection`` column is the full multi-part selection string;
+    # ``selection_part`` is the per-residue-range piece that joins to LDDT.
+    # Drop the multi-part selection first so the rename doesn't collide.
+    df = df.drop(columns=["selection"]).rename(columns={"selection_part": "selection"})
+    n_a = df["n_within_thresh_altloc_A"]
+    n_b = df["n_within_thresh_altloc_B"]
+    total = n_a + n_b
+    df["frac_a_cluster"] = np.where(total > 0, n_a / total.replace(0, np.nan), np.nan)
+    df["x_one_minus_fa"] = 1.0 - df["frac_a_cluster"]
+    return df[[
+        "protein", "selection",
+        "n_within_thresh_altloc_A", "n_within_thresh_altloc_B",
+        "n_cluster_evaluated",
+        "frac_a_cluster", "x_one_minus_fa",
+    ]]
 
 
 # ── Plotting helpers ──────────────────────────────────────────────────────────
@@ -1865,6 +1959,119 @@ def make_aggregated_scatter(
     return fig
 
 
+def make_training_bias_scatter(
+    df: pd.DataFrame,
+    *,
+    title: str | None = None,
+    model_order: list[str] | None = None,
+) -> plt.Figure:
+    """Single-panel scatter of training-cluster bias vs predicted B occupancy.
+
+    X = ``1 − fraction A in pre-cutoff training cluster``
+    (so X = 0 → cluster all A, X = 1 → cluster all B).
+    Y = predicted B occupancy. Points on ``y = x`` track the training prior;
+    points on ``y = 0.5`` track the symmetric (0.5/0.5) ground-truth density.
+
+    All four main models are color-coded by :data:`MODEL_PALETTE`. Rows where
+    the cluster has no near-A and no near-B members
+    (``frac_a_cluster.isna()``) are dropped.
+    """
+    plot_df = df.dropna(subset=["x_one_minus_fa", "b_occupancy"])
+    if model_order is None:
+        model_order = [m for m in plot_df["model_name"].unique() if m in MODEL_PALETTE]
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    # Reference geometry: y = x (training prior) and y = 0.5 (density-only).
+    ax.plot([0.0, 1.0], [0.0, 1.0], ls="--", color="#AAAAAA", lw=1, zorder=1)
+    ax.axhline(0.5, ls=":", color="#CCCCCC", lw=0.8, zorder=1)
+
+    for model_name in model_order:
+        sub = plot_df[plot_df["model_name"] == model_name]
+        if sub.empty:
+            continue
+        ax.scatter(
+            sub["x_one_minus_fa"], sub["b_occupancy"],
+            c=MODEL_PALETTE[model_name],
+            s=55, alpha=0.7,
+            edgecolors="white", linewidths=0.5,
+            label=MODEL_DISPLAY.get(model_name, model_name),
+            zorder=3,
+        )
+
+    ax.set_xlabel("1 − fraction A in pre-cutoff training cluster")
+    ax.set_ylabel("Predicted B occupancy")
+    ax.set_xlim(-0.02, 1.02)
+    ax.set_ylim(-0.02, 1.02)
+    ax.legend(loc="best", frameon=False)
+    if title:
+        ax.set_title(title, pad=10)
+    fig.tight_layout()
+    return fig
+
+
+def make_training_bias_empty_cluster_strip(
+    df: pd.DataFrame,
+    *,
+    title: str | None = None,
+    jitter: float = 0.18,
+    seed: int = 0,
+    model_order: list[str] | None = None,
+) -> plt.Figure:
+    """Strip plot of predicted B occupancy for empty-cluster (eval = 0) cases.
+
+    Two X categories: ``Pre`` (cluster of one — the seed structure was the
+    only pre-cutoff member of its sequence cluster) and ``Post`` (the seed
+    structure itself was deposited after :data:`TRAINING_CUTOFF_DATE`, so no
+    pre-cutoff structures exist). Y = predicted B occupancy. Horizontal jitter
+    spreads overlapping points within each column.
+    """
+    plot_df = df[df["n_cluster_evaluated"] == 0].copy()
+    plot_df = plot_df.dropna(subset=["b_occupancy", "cutoff_status"])
+    if model_order is None:
+        model_order = [m for m in plot_df["model_name"].unique() if m in MODEL_PALETTE]
+
+    cat_to_x = {"Pre": 0, "Post": 1}
+    plot_df = plot_df[plot_df["cutoff_status"].isin(cat_to_x)].copy()
+    rng = np.random.default_rng(seed)
+    plot_df["_x"] = (
+        plot_df["cutoff_status"].map(cat_to_x).astype(float)
+        + rng.uniform(-jitter, jitter, len(plot_df))
+    )
+
+    n_pre = plot_df.loc[plot_df["cutoff_status"] == "Pre", ["protein", "selection"]].drop_duplicates().shape[0]
+    n_post = plot_df.loc[plot_df["cutoff_status"] == "Post", ["protein", "selection"]].drop_duplicates().shape[0]
+
+    fig, ax = plt.subplots(figsize=(5.2, 5.2))
+    ax.axhline(0.5, ls=":", color="#CCCCCC", lw=0.8, zorder=1)
+
+    for model_name in model_order:
+        sub = plot_df[plot_df["model_name"] == model_name]
+        if sub.empty:
+            continue
+        ax.scatter(
+            sub["_x"], sub["b_occupancy"],
+            c=MODEL_PALETTE[model_name],
+            s=55, alpha=0.75,
+            edgecolors="white", linewidths=0.5,
+            label=MODEL_DISPLAY.get(model_name, model_name),
+            zorder=3,
+        )
+
+    ax.set_xticks([0, 1])
+    ax.set_xticklabels([
+        f"Pre-cutoff\n(cluster of 1)\nn={n_pre}",
+        f"Post-cutoff\ndeposition\nn={n_post}",
+    ])
+    ax.set_xlim(-0.5, 1.5)
+    ax.set_ylim(-0.02, 1.02)
+    ax.set_ylabel("Predicted B occupancy")
+    ax.legend(loc="best", frameon=False)
+    if title:
+        ax.set_title(title, pad=10)
+    fig.tight_layout()
+    return fig
+
+
 def make_ridge_plot(
     df: pd.DataFrame,
     plot_column_name: str,
@@ -2223,6 +2430,108 @@ def make_delta_frame(
         merged[plot_column_name] - merged[plot_column_name + "_baseline"]
     )
     return merged
+
+
+def build_training_bias_df(
+    lddt_df: pd.DataFrame,
+    cluster_df: pd.DataFrame,
+    cutoffs_df: pd.DataFrame,
+    model_to_gw: dict[str, float],
+    *,
+    verbose: bool = True,
+) -> pd.DataFrame:
+    """Compose LDDT, training-cluster, and cutoff frames into one tidy frame.
+
+    For each ``(model_name, guidance_weight)`` pair in *model_to_gw*, slices
+    *lddt_df* at exactly that condition, parses the B occupancy from the
+    ``occupancies`` string, inner-joins on (``protein``, ``selection``) with
+    *cluster_df* to attach pre-cutoff cluster counts, and left-joins on
+    ``protein`` with *cutoffs_df* to attach the Pre/Post deposition flag.
+
+    Warnings (``verbose=True``) are printed for: NaN occupancies, lddt rows
+    with no matching cluster row, and cluster rows where ``n_cluster_evaluated
+    > 0`` but ``A == B == 0`` (X is undefined for plot 1, eval > 0
+    disqualifies plot 2).
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: ``protein``, ``selection``, ``model_name``,
+        ``guidance_weight``, ``b_occupancy``, ``n_within_thresh_altloc_A``,
+        ``n_within_thresh_altloc_B``, ``n_cluster_evaluated``,
+        ``frac_a_cluster``, ``x_one_minus_fa``, ``cutoff_status``.
+    """
+    pieces: list[pd.DataFrame] = []
+    for model_name, gw in model_to_gw.items():
+        sub = lddt_df.query(
+            "model_name == @model_name and guidance_weight == @gw"
+        ).copy()
+        if sub.empty:
+            if verbose:
+                print(
+                    f"⚠️  No lddt rows for model={model_name!r} gw={gw}; "
+                    "skipping in build_training_bias_df."
+                )
+            continue
+        sub["b_occupancy"] = sub["occupancies"].map(_parse_b_occupancy)
+        nan_mask = sub["b_occupancy"].isna()
+        if verbose and nan_mask.any():
+            n_nan = int(nan_mask.sum())
+            sample = (
+                sub.loc[nan_mask, ["protein", "model_name", "guidance_weight", "selection"]]
+                .head(min(n_nan, 50))
+                .to_dict(orient="records")
+            )
+            print(
+                f"⚠️  {n_nan} NaN B-occupancy row(s) for model={model_name!r} "
+                f"gw={gw}; dropped. Listing up to 50:\n  " + "\n  ".join(repr(r) for r in sample)
+            )
+        sub = sub.loc[~nan_mask, ["protein", "selection", "model_name", "guidance_weight", "b_occupancy"]]
+        pieces.append(sub)
+    if not pieces:
+        return pd.DataFrame(columns=[
+            "protein", "selection", "model_name", "guidance_weight", "b_occupancy",
+            "n_within_thresh_altloc_A", "n_within_thresh_altloc_B", "n_cluster_evaluated",
+            "frac_a_cluster", "x_one_minus_fa", "cutoff_status",
+        ])
+    lddt_subset = pd.concat(pieces, ignore_index=True)
+
+    if verbose:
+        unmatched = (
+            lddt_subset.merge(
+                cluster_df[["protein", "selection"]].assign(_in_cluster=1),
+                on=["protein", "selection"], how="left",
+            )
+            .pipe(lambda d: d[d["_in_cluster"].isna()])
+            [["protein", "selection"]]
+            .drop_duplicates()
+        )
+        if not unmatched.empty:
+            print(
+                f"⚠️  {len(unmatched)} (protein, selection) key(s) in lddt have no "
+                f"training-cluster row; dropped. Examples: "
+                f"{unmatched.head(3).to_dict(orient='records')}"
+            )
+        ambiguous = cluster_df[
+            (cluster_df["n_cluster_evaluated"] > 0)
+            & (cluster_df["n_within_thresh_altloc_A"] == 0)
+            & (cluster_df["n_within_thresh_altloc_B"] == 0)
+        ]
+        if not ambiguous.empty:
+            print(
+                f"⚠️  {len(ambiguous)} cluster row(s) have eval > 0 but A == B == 0 "
+                "(X undefined, eval > 0 disqualifies the empty-cluster plot); dropped."
+            )
+
+    merged = lddt_subset.merge(
+        cluster_df, on=["protein", "selection"], how="inner",
+    )
+    merged = merged.merge(cutoffs_df[["protein", "cutoff_status"]], on="protein", how="left")
+    return merged[[
+        "protein", "selection", "model_name", "guidance_weight", "b_occupancy",
+        "n_within_thresh_altloc_A", "n_within_thresh_altloc_B", "n_cluster_evaluated",
+        "frac_a_cluster", "x_one_minus_fa", "cutoff_status",
+    ]]
 
 
 def add_tradeoff_guidance_regions(

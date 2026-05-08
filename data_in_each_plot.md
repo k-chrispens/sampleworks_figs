@@ -521,6 +521,63 @@ The final `tradeoff_df` has one row per (protein, model, guidance_weight) at eve
 
 ---
 
+### Figures 29–32 — Training-Distribution Bias
+
+**Common inputs:**
+- `max_rmsd_within_rmsd_2021-09-30_1A.csv` — pre-cutoff (PDB depositions before 2021-09-30) per-selection counts of structures within 1Å RMSD of altloc A vs altloc B for each protein's sequence cluster. Loaded via `load_training_cluster_counts` (lowercases `protein`, renames `selection_part` → `selection`, drops the multi-part `selection` column to avoid name collision, computes `frac_a_cluster = n_A / (n_A + n_B)` and `x_one_minus_fa = 1 − frac_a_cluster`).
+- `initial40results/Sampleworks_initial_structures.csv` — per-protein deposition date and `Pre`/`Post` cutoff flag. Loaded via `load_deposition_cutoffs` (lowercases PDB ID, dedupes the duplicate `9B22` row, fills the four missing proteins `1VME, 4OLE, 5SOP, 6B8X` as `Pre` since all are 2004–2017 depositions).
+- `initial40results/lddt_results.csv` — predicted occupancies; loaded via `load_lddt` (so the global `OCC_FILTER_ALTLOC` of `{'A': 0.5, 'B': 0.5}` and `MODEL_NAME_ALIAS` are already applied), then narrowed to main models via `filter_by_model_group(df, "main")` (drops `protenix-mini`, `protenix-tiny`, `rf3-old`, `rf3-chiral-off`).
+
+**Common transforms:** `build_training_bias_df` parses the **second** float of each `occupancies` cell (numpy-style `"[0.375 0.625]"` → `0.625`) into a `b_occupancy` column, inner-joins lddt to the cluster frame on `(protein, selection)`, and left-joins the cutoff flag on `protein`. Warnings are printed for: NaN occupancies (~46 rows under the OCC filter), lddt rows with no matching cluster row (~22 keys, mostly `7z0e` chain P), and ambiguous cluster rows where `n_cluster_evaluated > 0` but `A == B == 0` (21 rows, dropped — X is undefined for plot 1, eval > 0 disqualifies plot 2).
+
+**Models plotted:** boltz2X-RAY, boltz2MD, protenix, rf3.
+
+#### Figure 29 — Training-Distribution Bias Scatter (Baseline)
+
+**Output:** `figures/29_training_bias_scatter_baseline.svg`.
+
+**What is plotted:** Single panel. X = `1 − fraction A in pre-cutoff training cluster` (so X = 0 → cluster all A, X = 1 → cluster all B). Y = predicted B occupancy. Each (protein, selection_part) point is shown for each of the four main models, color-coded by `MODEL_PALETTE`. Reference lines: dashed `y = x` (training-prior tracking) and dotted `y = 0.5` (density-only tracking).
+
+**Data included:**
+- Only `guidance_weight == 0.0` per model (baseline — no density guidance, so any A/B asymmetry reflects the model's training prior or stochasticity rather than the experimental density).
+- Only rows where the training cluster has at least one near-A or near-B member (i.e. `frac_a_cluster.notna()`).
+
+**What is excluded:**
+- Cluster rows with `A == B == 0` regardless of `n_cluster_evaluated` (X undefined).
+- All upstream exclusions (occupancy filter, model alias).
+
+#### Figure 30 — Training-Distribution Bias Scatter (Optimal Guidance)
+
+**Output:** `figures/30_training_bias_scatter_optimal.svg`.
+
+**What is plotted:** Same axes and reference lines as Figure 29, but each model is plotted at its `OPTIMAL_GW` (`0.1` for boltz2X-RAY/boltz2MD/protenix, `0.01` for rf3). Points moving toward `y = 0.5` indicate guidance pulling predictions away from the training prior toward the symmetric ground truth.
+
+**Data included:** Same per-model filters as Figure 29 but at the optimal guidance weight per model.
+
+**What is excluded:** Same as Figure 29.
+
+#### Figure 31 — Empty-Cluster B Occupancy by Cutoff (Baseline)
+
+**Output:** `figures/31_training_bias_empty_cluster_baseline.svg`.
+
+**What is plotted:** Strip plot with two X categories — "Pre-cutoff (cluster of 1)" (the seed structure was the only pre-cutoff member of its sequence cluster) and "Post-cutoff deposition" (the seed itself was deposited after 2021-09-30, so no pre-cutoff structures exist). Y = predicted B occupancy. Horizontal jitter (uniform `±0.18`, seed = 0) spreads overlapping points. Points colored by model. Tick labels include unique-(protein, selection) counts per category.
+
+**Data included:**
+- Subset of rows with `n_cluster_evaluated == 0` (the seed has no other near-RMSD pre-cutoff members).
+- `guidance_weight == 0.0` per model.
+
+**What is excluded:**
+- All cluster rows where `n_cluster_evaluated > 0` (those drive Figure 29).
+- Rows missing a `cutoff_status` (none after the missing-protein fill).
+
+#### Figure 32 — Empty-Cluster B Occupancy by Cutoff (Optimal Guidance)
+
+**Output:** `figures/32_training_bias_empty_cluster_optimal.svg`.
+
+Same as Figure 31 but at each model's `OPTIMAL_GW`.
+
+---
+
 ## Summary: What Is Universally Excluded
 
 The following data **never appears in any plot**:
