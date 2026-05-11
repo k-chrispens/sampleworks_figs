@@ -40,7 +40,7 @@ uv sync
   - Classification-aware scatters: `make_classified_scatter`, `make_classified_scatter_grid`, `make_classified_aggregated_scatter`
   - Aggregated (mean ± SD over proteins): `make_aggregated_scatter`, `make_aggregated_spiral_figure`
   - Spiral / tradeoff plots: `make_spiral_figure`, `make_tradeoff_grid`, `annotate_tradeoff_highlights`, `make_conceptual_tradeoff_figure`
-  - Training-distribution bias: `make_training_bias_scatter`, `make_training_bias_empty_cluster_strip`
+  - Training-distribution bias: `make_training_bias_scatter`, `make_training_bias_subset_grid`
 - Save helpers: `save_fig`, `save_model_legend` (writes `figures/model_legend.svg`), `save_per_model_figures`
 - Constants: `OCC_FILTER` (`"0.5occA_0.5occB"`), `MODEL_PALETTE` / `MODEL_DISPLAY` / `MODEL_NAME_ALIAS`, `GUIDANCE_PALETTE` / `GUIDANCE_MARKERS`, `GW_TO_STRENGTH`, `OPTIMAL_GW`, `CLASSIFICATION_PALETTE` / `CLASSIFICATION_DISPLAY` / `CLASSIFICATION_ORDER`, `NICE_XLABELS`, `MODELS_ALT` / `MODELS_PROTENIX_GROUP` / `MODELS_RF3_GROUP`, `FIGURE_DIR`, `TRAINING_CUTOFF_DATE`
 - Data transformations: `extract_metadata_from_path`, `add_simplified_metadata_columns` (adds `guidance_strength` bucket), `tag_path_dataframe`, `make_delta_frame` (guided − baseline), `build_training_bias_df` (joins lddt + training-cluster + cutoff frames), `robust_z_score`
@@ -94,7 +94,7 @@ uv sync
 **Training-distribution bias (predicted occupancy vs. pre-cutoff cluster composition):**
 1. Build the tidy frame with `build_training_bias_df(lddt_df, cluster_df, cutoffs_df, model_to_gw)` — pass `{m: 0.0 for m in MAIN_MODELS}` for the baseline figure, `{m: OPTIMAL_GW[m] for m in MAIN_MODELS}` for the optimal-guidance figure
 2. Plot 1 (full scatter): `make_training_bias_scatter(df)` — X = `1 − fraction A in pre-cutoff training cluster`, Y = predicted B occupancy, all models color-coded; reference lines `y = x` (training prior) and `y = 0.5` (density-only)
-3. Plot 2 (eval=0 strip): `make_training_bias_empty_cluster_strip(df)` — strip plot with horizontal jitter for selections whose cluster has no other pre-cutoff members, split by `Pre`/`Post` cutoff status
+3. Plot 2 (out-of-distribution 2x2 grid): `make_training_bias_subset_grid(baseline_df, optimal_df, model_name)` — per-model 2x2 strip plot. Rows: post-cutoff depositions (no `n_cluster_evaluated` filter) and pre-cutoff selections with `n_cluster_evaluated <= 5`. Columns: Baseline and Optimal guidance.
 
 ## Validation
 - For quick syntax/import checks while editing helpers, prefer `uv run python -c "import analysis_helpers"` over running the notebook headlessly. `uv run marimo run …` is slow.

@@ -29,8 +29,8 @@ def _():
         make_aggregated_spiral_figure,
         make_delta_frame,
         make_spiral_figure,
-        make_training_bias_empty_cluster_strip,
         make_training_bias_scatter,
+        make_training_bias_subset_grid,
         model_slug,
         save_fig,
         tag_path_dataframe,
@@ -53,8 +53,8 @@ def _():
         make_aggregated_spiral_figure,
         make_delta_frame,
         make_spiral_figure,
-        make_training_bias_empty_cluster_strip,
         make_training_bias_scatter,
+        make_training_bias_subset_grid,
         model_slug,
         np,
         pd,
@@ -79,10 +79,8 @@ def _(MODEL_DISPLAY, mo):
     | 12-19 | Spiral trajectory per model | `{nn}_spiral_{model}.svg` |
     | 20 | Aggregated spiral (all models) | `20_aggregated_spiral_all.svg` |
     | 21-28 | Aggregated spiral per model | `{nn}_aggregated_spiral_{model}.svg` |
-    | 29 | Training-distribution bias scatter (baseline) | `29_training_bias_scatter_baseline.svg` |
-    | 30 | Training-distribution bias scatter (optimal gw) | `30_training_bias_scatter_optimal.svg` |
-    | 31 | Empty-cluster B-occupancy by cutoff (baseline) | `31_training_bias_empty_cluster_baseline.svg` |
-    | 32 | Empty-cluster B-occupancy by cutoff (optimal gw) | `32_training_bias_empty_cluster_optimal.svg` |
+    | 29 | Training-cluster vs predicted state-B fraction -- 4x2 small multiples | `29_training_bias_small_multiples.svg` |
+    | 30-33 | Out-of-training-distribution B-occupancy strip, per model -- 2x2 (post-cutoff / pre-cutoff with n_cluster_evaluated ≤ 5) × (Baseline / Optimal) | `{nn}_training_bias_subset_grid_{model}.svg` |
     """)
 
     _options = {
@@ -341,35 +339,24 @@ def _(
 
 
 @app.cell
-def _(auto_save, bias_baseline_df, make_training_bias_scatter, mo, save_fig):
-    _fig = make_training_bias_scatter(
-        bias_baseline_df, title="Baseline (no guidance)"
-    )
+def _(
+    auto_save,
+    bias_baseline_df,
+    bias_optimal_df,
+    make_training_bias_scatter,
+    mo,
+    save_fig,
+):
+    _fig = make_training_bias_scatter(bias_baseline_df, bias_optimal_df)
     if auto_save.value:
-        save_fig(_fig, "29_training_bias_scatter_baseline.svg")
+        save_fig(_fig, "29_training_bias_small_multiples.svg")
     mo.vstack([
-        mo.md("""## Figure 29 -- Training-Distribution Bias (Baseline)
-        Predicted B occupancy vs. 1 - (fraction A in pre-cutoff training cluster).
-        Points on `y = x` track the training prior; points on `y = 0.5` track the
-        symmetric (0.5/0.5) ground-truth density.
-        `figures/29_training_bias_scatter_baseline.svg`"""),
-        _fig,
-    ])
-    return
-
-
-@app.cell
-def _(auto_save, bias_optimal_df, make_training_bias_scatter, mo, save_fig):
-    _fig = make_training_bias_scatter(
-        bias_optimal_df, title="Optimal guidance (per-model OPTIMAL_GW)"
-    )
-    if auto_save.value:
-        save_fig(_fig, "30_training_bias_scatter_optimal.svg")
-    mo.vstack([
-        mo.md("""## Figure 30 -- Training-Distribution Bias (Optimal Guidance)
-        Same axes as Fig. 29 but at each model's optimal guidance weight; points
-        moving toward `y = 0.5` indicate guidance overcoming training prior.
-        `figures/30_training_bias_scatter_optimal.svg`"""),
+        mo.md("""## Figure 29 -- Training-Cluster vs Predicted State-B Fraction
+        4x2 small multiples: columns = models (Boltz2-XRD, Boltz2-MD, Protenix, RF3),
+        rows = condition (Baseline, Optimal guidance). One point per case with
+        cluster sample size s > 0; point alpha scales with log(s + 1) normalized
+        across the full dataset. `y = 0.5` reference is drawn behind the points.
+        `figures/29_training_bias_small_multiples.svg`"""),
         _fig,
     ])
     return
@@ -379,43 +366,48 @@ def _(auto_save, bias_optimal_df, make_training_bias_scatter, mo, save_fig):
 def _(
     auto_save,
     bias_baseline_df,
-    make_training_bias_empty_cluster_strip,
-    mo,
-    save_fig,
-):
-    _fig = make_training_bias_empty_cluster_strip(
-        bias_baseline_df, title="Baseline (no guidance)"
-    )
-    if auto_save.value:
-        save_fig(_fig, "31_training_bias_empty_cluster_baseline.svg")
-    mo.vstack([
-        mo.md("""## Figure 31 -- Empty-Cluster B Occupancy (Baseline)
-        Selections whose pre-cutoff training cluster has zero other structures,
-        split into pre-cutoff (cluster of one) vs. post-cutoff depositions.
-        `figures/31_training_bias_empty_cluster_baseline.svg`"""),
-        _fig,
-    ])
-    return
-
-
-@app.cell
-def _(
-    auto_save,
     bias_optimal_df,
-    make_training_bias_empty_cluster_strip,
+    make_training_bias_subset_grid,
     mo,
+    model_slug,
+    plt,
+    save_all,
     save_fig,
+    selected_model,
 ):
-    _fig = make_training_bias_empty_cluster_strip(
-        bias_optimal_df, title="Optimal guidance (per-model OPTIMAL_GW)"
+    _subset_nums = {"boltz2X-RAY": 30, "boltz2MD": 31, "protenix": 32, "rf3": 33}
+    _main_models = list(_subset_nums.keys())
+
+    if save_all.value and auto_save.value:
+        for _model in _main_models:
+            _f = make_training_bias_subset_grid(
+                bias_baseline_df, bias_optimal_df, _model
+            )
+            save_fig(
+                _f,
+                f"{_subset_nums[_model]:02d}_training_bias_subset_grid_{model_slug(_model)}.svg",
+            )
+            plt.close(_f)
+
+    _shown_model = selected_model.value if selected_model.value in _main_models else _main_models[0]
+    _subset_fig = make_training_bias_subset_grid(
+        bias_baseline_df, bias_optimal_df, _shown_model
     )
-    if auto_save.value:
-        save_fig(_fig, "32_training_bias_empty_cluster_optimal.svg")
+    if auto_save.value and not save_all.value:
+        save_fig(
+            _subset_fig,
+            f"{_subset_nums[_shown_model]:02d}_training_bias_subset_grid_{model_slug(_shown_model)}.svg",
+        )
+
     mo.vstack([
-        mo.md("""## Figure 32 -- Empty-Cluster B Occupancy (Optimal Guidance)
-        Same as Fig. 31 but with each model at its optimal guidance weight.
-        `figures/32_training_bias_empty_cluster_optimal.svg`"""),
-        _fig,
+        mo.md("""## Figures 30-33 -- Out-of-Training-Distribution B Occupancy per Model
+        Predicted B occupancy for selections that fall outside the typical training distribution.
+        2x2 panel grid: rows = subset (post-cutoff depositions / pre-cutoff selections with
+        `n_cluster_evaluated ≤ 5`), columns = condition (Baseline / Optimal guidance). One
+        figure per main model. Toggle `Save all models at once` to batch-export.
+        `figures/30_training_bias_subset_grid_boltz2_xrd.svg` through
+        `figures/33_training_bias_subset_grid_rf3.svg`"""),
+        _subset_fig,
     ])
     return
 

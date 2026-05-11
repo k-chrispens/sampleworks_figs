@@ -19,7 +19,7 @@ import seaborn as sns
 from adjustText import adjust_text
 from matplotlib.cm import ScalarMappable
 from matplotlib.collections import LineCollection
-from matplotlib.colors import Normalize
+from matplotlib.colors import Normalize, to_rgb
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
@@ -1959,116 +1959,170 @@ def make_aggregated_scatter(
     return fig
 
 
+_TRAINING_BIAS_POINT_COLOR = "#333333"
+_TRAINING_BIAS_MAIN_MODELS = ["boltz2X-RAY", "boltz2MD", "protenix", "rf3"]
+
+
+def _training_bias_prepare_scatter_frame(df: pd.DataFrame, condition_label: str) -> pd.DataFrame:
+    out = df.copy()
+    n_a = out["n_within_thresh_altloc_A"]
+    n_b = out["n_within_thresh_altloc_B"]
+    s = (n_a + n_b).astype("float")
+    out["s_cluster"] = s
+    out["frac_b_cluster"] = np.where(s > 0, n_b / s.replace(0, np.nan), np.nan)
+    out["condition"] = condition_label
+    out = out.dropna(subset=["frac_b_cluster", "b_occupancy"])
+    out = out[out["s_cluster"] > 0]
+    return out
+
+
 def make_training_bias_scatter(
-    df: pd.DataFrame,
+    baseline_df: pd.DataFrame,
+    optimal_df: pd.DataFrame,
     *,
-    title: str | None = None,
     model_order: list[str] | None = None,
+    jitter: float = 0.01,
+    seed: int = 0,
 ) -> plt.Figure:
-    """Single-panel scatter of training-cluster bias vs predicted B occupancy.
-
-    X = ``1 − fraction A in pre-cutoff training cluster``
-    (so X = 0 → cluster all A, X = 1 → cluster all B).
-    Y = predicted B occupancy. Points on ``y = x`` track the training prior;
-    points on ``y = 0.5`` track the symmetric (0.5/0.5) ground-truth density.
-
-    All four main models are color-coded by :data:`MODEL_PALETTE`. Rows where
-    the cluster has no near-A and no near-B members
-    (``frac_a_cluster.isna()``) are dropped.
-    """
-    plot_df = df.dropna(subset=["x_one_minus_fa", "b_occupancy"])
     if model_order is None:
-        model_order = [m for m in plot_df["model_name"].unique() if m in MODEL_PALETTE]
-    fig, ax = plt.subplots(figsize=(6, 6))
+        model_order = list(_TRAINING_BIAS_MAIN_MODELS)
 
-    # Reference geometry: y = x (training prior) and y = 0.5 (density-only).
-    ax.plot([0.0, 1.0], [0.0, 1.0], ls="--", color="#AAAAAA", lw=1, zorder=1)
-    ax.axhline(0.5, ls=":", color="#CCCCCC", lw=0.8, zorder=1)
+    baseline_prepared = _training_bias_prepare_scatter_frame(baseline_df, "Baseline")
+    optimal_prepared = _training_bias_prepare_scatter_frame(optimal_df, "Optimal guidance")
+    combined = pd.concat([baseline_prepared, optimal_prepared], ignore_index=True)
+    s_max = float(combined["s_cluster"].max()) if not combined.empty else 1.0
+    log_s_max = np.log(s_max + 1.0) if s_max > 0 else 1.0
 
-    for model_name in model_order:
-        sub = plot_df[plot_df["model_name"] == model_name]
-        if sub.empty:
-            continue
-        ax.scatter(
-            sub["x_one_minus_fa"], sub["b_occupancy"],
-            c=MODEL_PALETTE[model_name],
-            s=55, alpha=0.7,
-            edgecolors="white", linewidths=0.5,
-            label=MODEL_DISPLAY.get(model_name, model_name),
-            zorder=3,
+    fig, axes = plt.subplots(
+        2, 4,
+        sharex=True, sharey=True,
+        figsize=(11, 6),
+        constrained_layout=True,
+    )
+
+    row_label = {"Baseline": 0, "Optimal guidance": 1}
+    rng = np.random.default_rng(seed)
+
+    for condition, row in row_label.items():
+        for col, model_name in enumerate(model_order):
+            ax = axes[row, col]
+            ax.axhline(0.5, ls=":", color="#CCCCCC", lw=0.8, zorder=1)
+
+            sub = combined[
+                (combined["condition"] == condition)
+                & (combined["model_name"] == model_name)
+            ]
+            n_points = len(sub)
+            if n_points > 0:
+                x = sub["frac_b_cluster"].to_numpy() + rng.uniform(-jitter, jitter, n_points)
+                y = sub["b_occupancy"].to_numpy()
+                alpha = np.log(sub["s_cluster"].to_numpy() + 1.0) / log_s_max
+                rgba = np.zeros((n_points, 4))
+                rgba[:, :3] = to_rgb(_TRAINING_BIAS_POINT_COLOR)
+                rgba[:, 3] = np.clip(alpha, 0.0, 1.0)
+                ax.scatter(x, y, s=18, c=rgba, linewidths=0, zorder=3)
+
+            ax.set_xlim(-0.02, 1.02)
+            ax.set_ylim(-0.02, 1.02)
+            ax.set_xticks([0.0, 0.5, 1.0])
+            ax.set_yticks([0.0, 0.5, 1.0])
+            if row == 0:
+                ax.set_title(MODEL_DISPLAY.get(model_name, model_name), fontsize=11)
+            ax.tick_params(labelbottom=(row == 1), labelleft=(col == 0))
+
+    for row, label in [(0, "Baseline"), (1, "Optimal guidance")]:
+        axes[row, 0].annotate(
+            label,
+            xy=(-0.32, 0.5), xycoords="axes fraction",
+            ha="center", va="center", rotation=90, fontsize=11,
         )
 
-    ax.set_xlabel("1 − fraction A in pre-cutoff training cluster")
-    ax.set_ylabel("Predicted B occupancy")
-    ax.set_xlim(-0.02, 1.02)
-    ax.set_ylim(-0.02, 1.02)
-    ax.legend(loc="best", frameon=False)
-    if title:
-        ax.set_title(title, pad=10)
-    fig.tight_layout()
+    fig.supxlabel("fraction in state B (training cluster)")
+    fig.supylabel("predicted fraction in state B")
     return fig
 
 
-def make_training_bias_empty_cluster_strip(
-    df: pd.DataFrame,
+def make_training_bias_subset_grid(
+    baseline_df: pd.DataFrame,
+    optimal_df: pd.DataFrame,
+    model_name: str,
     *,
-    title: str | None = None,
+    small_cluster_max: int = 5,
     jitter: float = 0.18,
     seed: int = 0,
-    model_order: list[str] | None = None,
 ) -> plt.Figure:
-    """Strip plot of predicted B occupancy for empty-cluster (eval = 0) cases.
+    """2x2 strip plot of predicted B occupancy for out-of-training-distribution selections.
 
-    Two X categories: ``Pre`` (cluster of one — the seed structure was the
-    only pre-cutoff member of its sequence cluster) and ``Post`` (the seed
-    structure itself was deposited after :data:`TRAINING_CUTOFF_DATE`, so no
-    pre-cutoff structures exist). Y = predicted B occupancy. Horizontal jitter
-    spreads overlapping points within each column.
+    Rows are subsets, columns are conditions:
+      - Row 0: post-cutoff depositions (``cutoff_status == "Post"``, any cluster size).
+      - Row 1: pre-cutoff selections with small structural neighborhood
+        (``cutoff_status == "Pre"`` and ``n_cluster_evaluated <= small_cluster_max``).
+      - Col 0: baseline frame; col 1: optimal-guidance frame.
+
+    One jittered strip per panel (x is ignored — purely for visual separation of points).
     """
-    plot_df = df[df["n_cluster_evaluated"] == 0].copy()
-    plot_df = plot_df.dropna(subset=["b_occupancy", "cutoff_status"])
-    if model_order is None:
-        model_order = [m for m in plot_df["model_name"].unique() if m in MODEL_PALETTE]
-
-    cat_to_x = {"Pre": 0, "Post": 1}
-    plot_df = plot_df[plot_df["cutoff_status"].isin(cat_to_x)].copy()
     rng = np.random.default_rng(seed)
-    plot_df["_x"] = (
-        plot_df["cutoff_status"].map(cat_to_x).astype(float)
-        + rng.uniform(-jitter, jitter, len(plot_df))
+
+    def _subset(df: pd.DataFrame, *, post: bool) -> pd.DataFrame:
+        sub = df[df["model_name"] == model_name].copy()
+        sub = sub.dropna(subset=["b_occupancy", "cutoff_status"])
+        if post:
+            sub = sub[sub["cutoff_status"] == "Post"]
+        else:
+            sub = sub[
+                (sub["cutoff_status"] == "Pre")
+                & (sub["n_cluster_evaluated"] <= small_cluster_max)
+            ]
+        return sub
+
+    panels = [
+        [_subset(baseline_df, post=True),  _subset(optimal_df, post=True)],
+        [_subset(baseline_df, post=False), _subset(optimal_df, post=False)],
+    ]
+    row_labels = [
+        "post-cutoff",
+        f"pre-cutoff,\nn_cluster_evaluated ≤ {small_cluster_max}",
+    ]
+    col_labels = ["Baseline", "Optimal guidance"]
+
+    fig, axes = plt.subplots(
+        2, 2,
+        sharex=True, sharey=True,
+        figsize=(7, 8),
+        constrained_layout=True,
     )
 
-    n_pre = plot_df.loc[plot_df["cutoff_status"] == "Pre", ["protein", "selection"]].drop_duplicates().shape[0]
-    n_post = plot_df.loc[plot_df["cutoff_status"] == "Post", ["protein", "selection"]].drop_duplicates().shape[0]
+    for r in range(2):
+        for c in range(2):
+            ax = axes[r, c]
+            ax.axhline(0.5, ls=":", color="#CCCCCC", lw=0.8, zorder=1)
+            plot_df = panels[r][c]
+            if not plot_df.empty:
+                x = rng.uniform(-jitter, jitter, len(plot_df))
+                ax.scatter(
+                    x, plot_df["b_occupancy"],
+                    c=_TRAINING_BIAS_POINT_COLOR,
+                    s=55, alpha=0.75,
+                    linewidths=0,
+                    zorder=3,
+                )
+            ax.set_xlim(-0.5, 0.5)
+            ax.set_ylim(-0.02, 1.02)
+            ax.set_xticks([])
+            ax.set_yticks([0.0, 0.25, 0.5, 0.75, 1.0])
+            ax.set_yticklabels(["0 (A)", "0.25", "0.5", "0.75", "1 (B)"])
+            if r == 0:
+                ax.set_title(col_labels[c], fontsize=11)
 
-    fig, ax = plt.subplots(figsize=(5.2, 5.2))
-    ax.axhline(0.5, ls=":", color="#CCCCCC", lw=0.8, zorder=1)
-
-    for model_name in model_order:
-        sub = plot_df[plot_df["model_name"] == model_name]
-        if sub.empty:
-            continue
-        ax.scatter(
-            sub["_x"], sub["b_occupancy"],
-            c=MODEL_PALETTE[model_name],
-            s=55, alpha=0.75,
-            edgecolors="white", linewidths=0.5,
-            label=MODEL_DISPLAY.get(model_name, model_name),
-            zorder=3,
+    for r in range(2):
+        axes[r, 0].annotate(
+            row_labels[r],
+            xy=(-0.28, 0.5), xycoords="axes fraction",
+            ha="center", va="center", rotation=90, fontsize=11,
         )
 
-    ax.set_xticks([0, 1])
-    ax.set_xticklabels([
-        f"Pre-cutoff\n(cluster of 1)\nn={n_pre}",
-        f"Post-cutoff\ndeposition\nn={n_post}",
-    ])
-    ax.set_xlim(-0.5, 1.5)
-    ax.set_ylim(-0.02, 1.02)
-    ax.set_ylabel("Predicted B occupancy")
-    ax.legend(loc="best", frameon=False)
-    if title:
-        ax.set_title(title, pad=10)
-    fig.tight_layout()
+    fig.supylabel("predicted fraction in state B")
+    fig.suptitle(MODEL_DISPLAY.get(model_name, model_name), fontsize=12)
     return fig
 
 
