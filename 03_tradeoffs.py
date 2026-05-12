@@ -16,30 +16,38 @@ def _():
     import matplotlib.pyplot as plt
     import numpy as np
     import pandas as pd
-    from analysis_helpers import (
+    from loaders import (
         add_simplified_metadata_columns,
-        build_training_bias_df,
-        filter_by_model_group,
         get_rscc_nan_proteins,
         load_and_tag_path_csv,
         load_deposition_cutoffs,
         load_lddt,
         load_rscc,
         load_training_cluster_counts,
+        tag_path_dataframe,
+    )
+    from plot_tradeoff import (
         make_aggregated_spiral_figure,
-        make_delta_frame,
         make_spiral_figure,
+    )
+    from plot_training_bias import (
         make_training_bias_calibration_explainer,
         make_training_bias_calibration_overlay,
         make_training_bias_calibration_overlay_legend,
         make_training_bias_no_cluster_strip,
         make_training_bias_scatter,
         make_training_bias_small_multiples_v2,
-        model_slug,
-        save_fig,
-        tag_path_dataframe,
+    )
+    from style import (
         MODEL_DISPLAY,
         OPTIMAL_GW,
+        save_fig,
+    )
+    from transforms import (
+        build_training_bias_df,
+        filter_by_model_group,
+        make_delta_frame,
+        model_slug,
     )
 
     return (

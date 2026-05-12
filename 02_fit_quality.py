@@ -15,36 +15,47 @@ def _():
 def _():
     import matplotlib.pyplot as plt
     import pandas as pd
-    from analysis_helpers import (
+    from loaders import (
         add_simplified_metadata_columns,
-        filter_by_model_group,
-        format_residue_range,
         get_rscc_nan_proteins,
-        load_rscc,
-        load_lddt,
         load_classification,
+        load_lddt,
+        load_rscc,
         merge_classification_by_containment,
+    )
+    from plot_classified import (
+        make_classified_aggregated_scatter,
+        make_classified_scatter,
+        make_classified_scatter_grid,
+    )
+    from plot_distributions import (
+        make_combined_baseline_distributions,
         make_ridge_plot,
+    )
+    from plot_scatter import (
+        make_aggregated_scatter,
         make_rscc_scatter,
         make_scatter_comparison,
-        make_aggregated_scatter,
-        make_classified_scatter,
-        make_classified_aggregated_scatter,
-        make_classified_scatter_grid,
-        make_combined_baseline_distributions,
-        make_delta_frame,
-        model_slug,
-        save_fig,
-        save_model_legend,
-        save_per_model_figures,
+    )
+    from style import (
         MODEL_DISPLAY,
         MODELS_ALT,
         MODELS_PROTENIX_GROUP,
         MODELS_RF3_GROUP,
         OPTIMAL_GW,
+        save_fig,
+        save_model_legend,
+        save_per_model_figures,
+    )
+    from transforms import (
+        filter_by_model_group,
+        format_residue_range,
+        make_delta_frame,
+        model_slug,
     )
 
     return (
+        MODELS_ALT,
         MODELS_PROTENIX_GROUP,
         MODELS_RF3_GROUP,
         MODEL_DISPLAY,
