@@ -41,8 +41,10 @@ def make_scatter_comparison(
 ) -> plt.Figure:
     """Generic scatter plot comparing two metrics for a single model.
 
-    See module docstring of ``analysis_helpers`` (pre-refactor) or commit
-    history for the full prose; behavior is unchanged.
+    Supports residual mode (``y_col - x_col`` on the y-axis with ``y = 0`` and
+    ``y = 1 - x`` reference lines), four label sets (top-improved, decreased,
+    far-from-ceiling, manually-highlighted), optional marginal KDE, optional
+    regression line, and optional Pearson r annotation.
     """
     color = MODEL_PALETTE.get(model_name, "#888888")
     display_name = MODEL_DISPLAY.get(model_name, model_name)
@@ -397,8 +399,9 @@ def make_aggregated_scatter(
 ) -> plt.Figure:
     """Scatter plot with asymmetric IQR error bars for cross-model aggregations.
 
-    See pre-refactor ``analysis_helpers`` docstring or commit history for the
-    full prose; behavior unchanged.
+    Each row of *agg_df* is one aggregated point; ``x_col``/``y_col`` are the
+    medians and the ``*_q1`` / ``*_q3`` columns provide the IQR whiskers.
+    Residual mode propagates ``sqrt(sd_g^2 + sd_b^2)`` for the y error bars.
     """
     if show_marginal_kde:
         fig = plt.figure(figsize=(6, 7.5))

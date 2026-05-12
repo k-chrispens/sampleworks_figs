@@ -30,30 +30,29 @@ uv sync
 
 ## Architecture
 
-**Marimo notebooks** (`01_geometry.py`, `02_fit_quality.py`, `03_tradeoffs.py`) are the analysis entry points. Each is a marimo `App` with `@app.cell` decorated functions — not standalone scripts. They import everything from `analysis_helpers.py` and should be run via `marimo edit` or `marimo run`, not `python` directly.
+**Marimo notebooks** (`02_fit_quality.py`, `03_tradeoffs.py`) are the analysis entry points. Each is a marimo `App` with `@app.cell` decorated functions — not standalone scripts. Run via `marimo edit` or `marimo run`, not `python` directly.
 
-**`analysis_helpers.py`** is the shared library. It contains:
-- All data loading (`load_and_tag_path_csv`, `load_and_tag_path_csv_fast` (polars), `load_rscc`, `load_lddt`, `load_classification`, `merge_classification_by_containment`, `get_rscc_nan_proteins`, `load_deposition_cutoffs`, `load_training_cluster_counts`)
-- All plotting functions:
-  - Distributions: `make_ridge_plot`, `make_combined_baseline_distributions`
-  - Per-model RSCC scatters: `make_rscc_scatter`, `make_scatter_comparison`
-  - Classification-aware scatters: `make_classified_scatter`, `make_classified_scatter_grid`, `make_classified_aggregated_scatter`
-  - Aggregated (mean ± SD over proteins): `make_aggregated_scatter`, `make_aggregated_spiral_figure`
-  - Spiral / tradeoff plots: `make_spiral_figure`, `make_tradeoff_grid`, `annotate_tradeoff_highlights`, `make_conceptual_tradeoff_figure`
-  - Training-distribution bias: `make_training_bias_scatter`, `make_training_bias_calibration_overlay` (supports `max_cluster_size` / `cutoff_status` subset filters and `n_bins` / `min_bin_count` overrides for sparse subsets), `make_training_bias_calibration_overlay_legend`, `make_training_bias_no_cluster_strip` (for the A=B=0 / undefined-X subset), `make_training_bias_small_multiples_v2`
-- Save helpers: `save_fig`, `save_model_legend` (writes `figures/model_legend.svg`), `save_per_model_figures`
-- Constants: `OCC_FILTER` (`"0.5occA_0.5occB"`), `MODEL_PALETTE` / `MODEL_DISPLAY` / `MODEL_NAME_ALIAS`, `GUIDANCE_PALETTE` / `GUIDANCE_MARKERS`, `GW_TO_STRENGTH`, `OPTIMAL_GW`, `CLASSIFICATION_PALETTE` / `CLASSIFICATION_DISPLAY` / `CLASSIFICATION_ORDER`, `NICE_XLABELS`, `MODELS_ALT` / `MODELS_PROTENIX_GROUP` / `MODELS_RF3_GROUP`, `FIGURE_DIR`, `TRAINING_CUTOFF_DATE`
-- Data transformations: `extract_metadata_from_path`, `add_simplified_metadata_columns` (adds `guidance_strength` bucket), `tag_path_dataframe`, `make_delta_frame` (guided − baseline), `build_training_bias_df` (joins lddt + training-cluster + cutoff frames), `robust_z_score`
+**Shared library**: split across 8 flat top-level modules. Each module imports from the ones below it in the list; no circular dependencies.
+
+- **`style.py`** — matplotlib rcParams, palettes (`MODEL_PALETTE`, `MODEL_DISPLAY`, `MODEL_NAME_ALIAS`, `GUIDANCE_PALETTE`, `GUIDANCE_MARKERS`, `CLASSIFICATION_PALETTE`, `CLASSIFICATION_DISPLAY`, `CLASSIFICATION_ORDER`, `HIGHLIGHT_STYLES`, `LABEL_TEMPLATES`), model groups (`MODELS_ALT`, `MODELS_PROTENIX_GROUP`, `MODELS_RF3_GROUP`), constants (`OCC_FILTER`, `OCC_FILTER_ALTLOC`, `TRAINING_CUTOFF_DATE`, `GW_TO_STRENGTH`, `OPTIMAL_GW`, `NICE_XLABELS`, `FIGURE_DIR`), and save helpers (`save_fig`, `save_model_legend`, `save_per_model_figures`).
+- **`loaders.py`** — CSV loaders and path-metadata tagging: `load_rscc`, `load_lddt`, `load_classification`, `merge_classification_by_containment`, `get_rscc_nan_proteins`, `load_deposition_cutoffs`, `load_training_cluster_counts`, `load_and_tag_path_csv`, `extract_metadata_from_path`, `tag_path_dataframe`, `add_simplified_metadata_columns`, `_parse_b_occupancy`.
+- **`transforms.py`** — `make_delta_frame`, `build_training_bias_df`, `filter_by_model_group`, `model_slug`, `format_residue_range`.
+- **`plot_distributions.py`** — `make_combined_baseline_distributions` (RSCC + LDDT baseline panels).
+- **`plot_scatter.py`** — `make_scatter_comparison`, `make_rscc_scatter`, `make_aggregated_scatter`.
+- **`plot_classified.py`** — `make_by_class_combined_grid` (4 main models × 4 classes combined figure).
+- **`plot_tradeoff.py`** — `make_spiral_figure`, `make_aggregated_spiral_figure`.
+- **`plot_training_bias.py`** — `make_training_bias_scatter`, `make_training_bias_calibration_overlay` (supports `max_cluster_size` / `cutoff_status` subset filters and `n_bins` / `min_bin_count` overrides for sparse subsets), `make_training_bias_calibration_overlay_legend`, `make_training_bias_no_cluster_strip` (for the A=B=0 / undefined-X subset), `make_training_bias_small_multiples_v2`, `make_training_bias_calibration_explainer`.
 
 **Data flow**: CSV files in `initial40results/` (plus the root-level `lddt_assignment_counts.csv` for training-cluster bias) → loaded/filtered by helpers → plotted in notebooks → SVGs saved to `figures/`.
 
 **Key data conventions**:
 - All analysis uses the `OCC_FILTER` constant (`0.5occA_0.5occB`) — equal-occupancy alternate conformations only
-- Raw model names are aliased at load time (e.g., `rf3` → `rf3-old`, `rf3-fixed` → `rf3`, `boltz2_X-RAY_DIFFRACTION` → `boltz2X-RAY`). See `MODEL_NAME_ALIAS`.
+- Raw model names are aliased at load time (e.g., `rf3-fixed` → `rf3`, `boltz2_X-RAY_DIFFRACTION` → `boltz2X-RAY`). See `MODEL_NAME_ALIAS`.
 - Guidance weights are bucketed into strengths via `GW_TO_STRENGTH`: 0.0=baseline, {0.005,0.01,0.1}=weak, {0.02,0.035,0.2,0.35}=medium, {0.05,0.5}=strong
-- Model groups for split plotting: `MODELS_ALT` (the four "alternate" model variants), `MODELS_PROTENIX_GROUP`, `MODELS_RF3_GROUP`. `filter_by_model_group(df, "main")` drops `MODELS_ALT`.
+- Model groups for split plotting: `MODELS_ALT` (the three "alternate" model variants: `protenix-mini`, `protenix-tiny`, `rf3-chiral-off`), `MODELS_PROTENIX_GROUP`, `MODELS_RF3_GROUP`. `filter_by_model_group(df, "main")` drops `MODELS_ALT`.
 - Notebooks expose toggles for cumulative distributions (`cumulative` switch + `cumulative_style` radio: KDE vs ECDF) and for excluding proteins with NaN RSCC (`exclude_nan_rscc`, sourced via `get_rscc_nan_proteins`).
 - Training-distribution sources: `lddt_assignment_counts.csv` holds per-selection counts of pre-cutoff PDB cluster members assigned to altloc A vs B by lDDT comparison (use `load_training_cluster_counts`); `initial40results/Sampleworks_initial_structures.csv` holds the per-protein deposition date and `Pre`/`Post` flag relative to `TRAINING_CUTOFF_DATE` (use `load_deposition_cutoffs`, which auto-fills the four pre-2018 PDBs missing from the CSV: `1VME, 4OLE, 5SOP, 6B8X`).
+- Domain-shift RSCC source: the by-class figure's domain-shift column loads from `initial40results/rscc_results_domain_shift.csv` — a clean extract of the whole-domain rows from the legacy `rscc_results.csv.bak` (the per-altloc-region CSV `rscc_results.csv` doesn't sample the conformational change for these wide selections). The legacy `rf3` (= `rf3-old`) rows are excluded from the extract.
 
 **Merge scripts** (`merge_combined_into_initial.py`, `merge_new_rscc_lddt.py`) are one-time data integration scripts that append new model results into `initial40results/`. They are not part of the regular analysis workflow.
 
@@ -69,14 +68,10 @@ uv sync
 
 - Do not duplicate data pipelines from the notebooks into standalone scripts — use the notebook's own execution via marimo.
 - Figures output as SVG to `figures/` directory. The `save_fig` helper handles path construction.
-- The codebase uses both pandas and polars: notebooks use pandas via the helpers; merge scripts use polars.
+- The codebase uses pandas; merge scripts use polars.
 - Each notebook has a **figure catalog table** in its intro cell listing every figure it produces.
 
 ## Adding a New Figure
-
-**Ridge plot with model-group variants:**
-1. Add a cell with `filter_by_model_group()` + `make_ridge_plot()` + `save_fig()`
-2. Update the figure table in the notebook's intro cell
 
 **Per-model scatter:**
 1. Build the dataframe (use `OPTIMAL_GW` for optimal guidance extraction)
@@ -87,9 +82,11 @@ uv sync
 1. Group by protein, aggregate with mean +/- SD
 2. Call `make_aggregated_scatter()` with the aggregated df
 
-**Classification-aware scatter (side-chain / small-loop / large-loop / domain-shift):**
-1. Merge metric df with `load_classification("small-altlocs-classified-rmsd.csv")` (use `merge_classification_by_containment` when the selection-name match needs to be by residue range containment)
-2. Per-model: `make_classified_scatter()`; aggregated (mean ± SD across proteins): `make_classified_aggregated_scatter()`; combined model grid: `make_classified_scatter_grid()`
+**Classification-aware combined grid (side-chain / small-loop / large-loop / domain-shift):**
+1. Build the per-altloc-region merged frame: load RSCC, drop "all altloc" selections, run `merge_classification_by_containment` against `small-altlocs-classified-rmsd.csv`, exclude `domain_shift`.
+2. Build the whole-domain merged frame for `domain_shift`: load `initial40results/rscc_results_domain_shift.csv`, inner-join with the `domain_shift` rows of `small-altlocs-classified-rmsd.csv`.
+3. Concatenate the two frames; restrict to main models (drop `MODELS_ALT`).
+4. Call `make_by_class_combined_grid(merged_df)` once.
 
 **Training-distribution bias (predicted occupancy vs. pre-cutoff cluster composition):**
 1. Build the tidy frame with `build_training_bias_df(lddt_df, cluster_df, cutoffs_df, model_to_gw)` — pass `{m: 0.0 for m in MAIN_MODELS}` for the baseline figure, `{m: OPTIMAL_GW[m] for m in MAIN_MODELS}` for the optimal-guidance figure
@@ -99,4 +96,4 @@ uv sync
 5. Plot 4 (calibration small multiples v2, Figure 35): `make_training_bias_small_multiples_v2(baseline_df, optimal_df)` — 2×4 mirroring Figure 29 with per-panel conditional mean, per-panel slope/r annotation, per-panel single-condition marginal y-histogram, and an inset legend in the top-left panel. Use this for the "every panel earns its place" rhetorical comparison against Figure 29.
 
 ## Validation
-- For quick syntax/import checks while editing helpers, prefer `uv run python -c "import analysis_helpers"` over running the notebook headlessly. `uv run marimo run …` is slow.
+- For quick syntax/import checks while editing helpers, prefer `uv run python -c "import style, loaders, transforms, plot_distributions, plot_scatter, plot_classified, plot_tradeoff, plot_training_bias"` over running the notebook headlessly. `uv run marimo run …` is slow.
