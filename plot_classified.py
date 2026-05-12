@@ -136,19 +136,27 @@ def make_by_class_combined_grid(
 
     # Wider hspace than the legacy grid so the row banner sits in clear
     # whitespace between rows without colliding with the next row's class
-    # titles. Narrower wspace keeps columns tight.
+    # titles. Reserve extra top margin for the row-0 banner which has to
+    # sit above the column titles.
     fig.subplots_adjust(
         left=0.09, right=0.99,
-        top=0.92, bottom=0.08,
+        top=0.88, bottom=0.08,
         hspace=0.55, wspace=0.08,
     )
 
-    # Horizontal model banner above each row.
+    # Horizontal model banner above each row. For row 0 the banner sits
+    # above the column titles; for later rows it sits in the inter-row gap.
     for row_idx, model in enumerate(models):
         left_box = axes[row_idx, 0].get_position()
         right_box = axes[row_idx, -1].get_position()
         x_center = 0.5 * (left_box.x0 + right_box.x1)
-        y_text = left_box.y1 + 0.015
+        if row_idx == 0:
+            # Row 0: above the column titles. Column titles with pad=10 sit
+            # roughly 0.020 figure-fraction above the axes; 0.055 places the
+            # banner cleanly above them.
+            y_text = left_box.y1 + 0.055
+        else:
+            y_text = left_box.y1 + 0.030
         fig.text(
             x_center, y_text,
             MODEL_DISPLAY.get(model, model),
