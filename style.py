@@ -49,9 +49,9 @@ COLOR_GOOD_PINK = "#FFACB7"
 COLOR_GOOD_LIGHTBLUE = "#8EDCE6"
 
 # Model groups for split plotting
-MODELS_ALT = {"protenix-mini", "protenix-tiny", "rf3-old", "rf3-chiral-off"}
+MODELS_ALT = {"protenix-mini", "protenix-tiny", "rf3-chiral-off"}
 MODELS_PROTENIX_GROUP = ["protenix", "protenix-mini", "protenix-tiny"]
-MODELS_RF3_GROUP = ["rf3", "rf3-old", "rf3-chiral-off"]
+MODELS_RF3_GROUP = ["rf3", "rf3-chiral-off"]
 
 GUIDANCE_PALETTE = {
     "baseline": "#888888",
@@ -72,7 +72,6 @@ MODEL_PALETTE = {
     "ground_truth": COLOR_GOOD_GRAY,
     "protenix-mini": "#FF6B9D",
     "protenix-tiny": "#CC3377",
-    "rf3-old": COLOR_GOOD_NAVAHO,
     "rf3-chiral-off": "#DAA520",
 }
 
@@ -120,7 +119,6 @@ MODEL_DISPLAY = {
     "boltz2_X-RAY_DIFFRACTION": "Boltz2-XRD",
     "boltz2_MD": "Boltz2-MD",
     "rf3": "RF3",
-    "rf3-old": "RF3-Old",
     "protenix": "Protenix",
     "boltz2X-RAY_DIFFRACTION": "Boltz2-XRD",
     "boltz2X-RAY": "Boltz2-XRD",
@@ -190,7 +188,6 @@ OPTIMAL_GW = {
     "protenix-mini": 0.1,
     "protenix-tiny": 0.1,
     "rf3": 0.01,
-    "rf3-old": 0.01,
     "rf3-chiral-off": 0.01,
 }
 

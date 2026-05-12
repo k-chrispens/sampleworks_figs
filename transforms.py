@@ -196,20 +196,3 @@ def build_training_bias_df(
     ]]
 
 
-def robust_z_score(series: pd.Series) -> pd.Series:
-    """MAD-based robust z-score.
-
-    Parameters
-    ----------
-    series : pd.Series
-        Input values.
-
-    Returns
-    -------
-    pd.Series
-        Robust z-scores.
-    """
-    median = series.median()
-    mad = (series - median).abs().median()
-    scale = 1.4826 * mad + 1e-9
-    return (series - median) / scale

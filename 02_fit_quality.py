@@ -28,10 +28,7 @@ def _():
         make_classified_scatter,
         make_classified_scatter_grid,
     )
-    from plot_distributions import (
-        make_combined_baseline_distributions,
-        make_ridge_plot,
-    )
+    from plot_distributions import make_combined_baseline_distributions
     from plot_scatter import (
         make_aggregated_scatter,
         make_rscc_scatter,
@@ -40,8 +37,6 @@ def _():
     from style import (
         MODEL_DISPLAY,
         MODELS_ALT,
-        MODELS_PROTENIX_GROUP,
-        MODELS_RF3_GROUP,
         OPTIMAL_GW,
         save_fig,
         save_model_legend,
@@ -50,14 +45,11 @@ def _():
     from transforms import (
         filter_by_model_group,
         format_residue_range,
-        make_delta_frame,
         model_slug,
     )
 
     return (
         MODELS_ALT,
-        MODELS_PROTENIX_GROUP,
-        MODELS_RF3_GROUP,
         MODEL_DISPLAY,
         OPTIMAL_GW,
         add_simplified_metadata_columns,
@@ -73,8 +65,6 @@ def _():
         make_classified_scatter,
         make_classified_scatter_grid,
         make_combined_baseline_distributions,
-        make_delta_frame,
-        make_ridge_plot,
         make_rscc_scatter,
         make_scatter_comparison,
         model_slug,
@@ -103,25 +93,12 @@ def _(mo):
     | ID | Description | Output |
     |----|-------------|--------|
     | legend | Model color legend | `model_legend.svg` |
-    | 04 | RSCC baseline distribution | `04_rscc_baseline_all_models[_variant].svg` |
-    | 05 | RSCC baseline vs weak guidance | `05_rscc_baseline_vs_weak_distribution[_variant].svg` |
-    | 06 | Delta RSCC distribution | `06_delta_rscc_distribution[_variant].svg` |
-    | 07 | Delta RSCC weak (all models) | `07_delta_rscc_weak_all_models.svg` |
-    | 08 | Delta RSCC weak (protenix) | `08_delta_rscc_weak_protenix.svg` |
+    | 04_09 | Combined baseline distributions (RSCC + LDDT) | `04_09_baseline_distributions[_variant].svg` |
     | -- | RSCC scatter per model | `rscc_scatterplots/rscc_scatter_{model}.svg` |
     | -- | RSCC vs LDDT scatter per model | `cross_metric_scatterplots/rscc_vs_lddt_{model}.svg` |
     | -- | Aggregated RSCC scatter | `rscc_scatterplots/rscc_scatter_aggregated_all_models.svg` |
-    | -- | RSCC by classification per model (excl. domain shift) | `rscc_scatterplots/rscc_by_class_{model}.svg` |
-    | -- | RSCC by classification aggregated (excl. domain shift) | `rscc_scatterplots/rscc_by_class_aggregated.svg` |
-    | -- | RSCC by classification combined grid (excl. domain shift) | `rscc_scatterplots/rscc_by_class_grid_all_models.svg` |
-    | -- | RSCC for domain shift per model (whole-domain RSCC) | `rscc_scatterplots/rscc_by_class_domain_shift_{model}.svg` |
-    | -- | RSCC for domain shift aggregated (whole-domain RSCC) | `rscc_scatterplots/rscc_by_class_domain_shift_aggregated.svg` |
-    | -- | RSCC for domain shift combined grid (whole-domain RSCC) | `rscc_scatterplots/rscc_by_class_domain_shift_grid_all_models.svg` |
-    | -- | Aggregated LDDT scatter | `rscc_scatterplots/lddt_scatter_aggregated_all_models.svg` |
-    | -- | Aggregated RSCC vs LDDT scatter | `rscc_scatterplots/rscc_vs_lddt_aggregated_all_models.svg` |
-    | 09 | LDDT baseline distribution | `09_lddt_to_ref_baseline_distribution[_variant].svg` |
-    | 10 | LDDT all guidance distribution | `10_lddt_to_ref_all_guidance_distribution[_variant].svg` |
-    | 11 | Delta LDDT distribution | `11_delta_lddt_to_ref_distribution[_variant].svg` |
+    | -- | RSCC by classification (combined 4×4 grid) | `rscc_scatterplots/rscc_by_class_combined.svg` |
+    | -- | Aggregated LDDT scatter | `rscc_scatterplots/silhouette_scatter_aggregated_all_models.svg` |
     """)
 
     model_group = mo.ui.dropdown(
@@ -249,96 +226,12 @@ def _(
 
 
 @app.cell
-def _(
-    auto_save,
-    filter_by_model_group,
-    make_ridge_plot,
-    mo,
-    model_group,
-    rscc_all,
-    save_fig,
-):
-    _data, _suffix = filter_by_model_group(
-        rscc_all, model_group.value,
-        extra_query="guidance_strength in ('baseline', 'weak')",
-    )
-    fig_05 = make_ridge_plot(_data, "rscc")
-    if auto_save.value:
-        save_fig(fig_05, f"05_rscc_baseline_vs_weak_distribution{_suffix}.png")
-    mo.vstack([
-        mo.md("""## Figure 05 -- RSCC Baseline vs Weak Guidance
-        Comparing baseline and weak guidance distributions.
-        `figures/05_rscc_baseline_vs_weak_distribution[_variant].svg`"""),
-        fig_05,
-    ])
-    return
-
-
-@app.cell
-def _(
-    auto_save,
-    filter_by_model_group,
-    make_delta_frame,
-    make_ridge_plot,
-    mo,
-    model_group,
-    rscc_all,
-    save_fig,
-):
-    _rscc_delta = make_delta_frame(rscc_all, "rscc")
-    _data, _suffix = filter_by_model_group(
-        _rscc_delta, model_group.value,
-        extra_query="delta_rscc < 0.3 and delta_rscc > -0.3",
-    )
-    fig_06 = make_ridge_plot(_data, "delta_rscc", is_delta=True)
-    if auto_save.value:
-        save_fig(fig_06, f"06_delta_rscc_distribution{_suffix}.png")
-    mo.vstack([
-        mo.md("""## Figure 06 -- Delta RSCC Distribution
-        Change in RSCC from baseline (clipped to +/-0.3).
-        `figures/06_delta_rscc_distribution[_variant].svg`"""),
-        fig_06,
-    ])
-    return
-
-
-@app.cell
-def _(auto_save, make_delta_frame, make_ridge_plot, mo, rscc_all, save_fig):
-    _delta = make_delta_frame(rscc_all, "rscc")
-    _weak_filt = "guidance_strength == 'weak' and delta_rscc < 0.3 and delta_rscc > -0.3"
-    _xlabel = "Change in RSCC (Guided vs. Baseline)"
-
-    fig_07 = make_ridge_plot(
-        _delta.query(f"{_weak_filt} and model_name not in @MODELS_ALT"),
-        "delta_rscc", custom_xlabel=_xlabel, is_delta=True, combined=True,
-    )
-    if auto_save.value:
-        save_fig(fig_07, "07_delta_rscc_weak_all_models.png")
-
-    fig_08 = make_ridge_plot(
-        _delta.query(f"{_weak_filt} and model_name in @MODELS_PROTENIX_GROUP"),
-        "delta_rscc", custom_xlabel=_xlabel, is_delta=True, combined=True,
-    )
-    if auto_save.value:
-        save_fig(fig_08, "08_delta_rscc_weak_protenix.png")
-
-    mo.vstack([
-        mo.md("""## Figures 07-08 -- Delta RSCC at Weak Guidance
-        Fig 07: all main models combined. Fig 08: Protenix variants.
-        `figures/07_delta_rscc_weak_all_models.svg`, `figures/08_delta_rscc_weak_protenix.svg`"""),
-        fig_07,
-        fig_08,
-    ])
-    return
-
-
-@app.cell
 def _(MODEL_DISPLAY, mo):
     # Build dropdown from MODEL_DISPLAY (consistent labels across all scatter sections)
     _options = {
         v: k for k, v in MODEL_DISPLAY.items()
         if k in ("boltz2X-RAY", "boltz2MD", "protenix", "rf3",
-                  "protenix-mini", "protenix-tiny", "rf3-old", "rf3-chiral-off")
+                  "protenix-mini", "protenix-tiny", "rf3-chiral-off")
     }
     scatter_model = mo.ui.dropdown(options=_options, value="Boltz2-XRD", label="Model")
     save_all_scatter = mo.ui.switch(label="Save all models at once", value=False)
@@ -697,7 +590,6 @@ def _(
 def _(
     OPTIMAL_GW,
     auto_save,
-    cross_metric_df,
     format_residue_range,
     lddt_results_1,
     make_aggregated_scatter,
@@ -755,111 +647,10 @@ def _(
     if auto_save.value:
         save_fig(_fig_lddt, "rscc_scatterplots/silhouette_scatter_aggregated_all_models.png")
 
-    # Aggregated cross-metric scatter
-    _cross_agg_df = (
-        cross_metric_df.query("model_name not in @MODELS_ALT")
-        .groupby("protein", as_index=False)
-        .agg(
-            x_med=("rscc", "median"),
-            y_med=("avg_silhouette_to_ref", "median"),
-            n=("model_name", "count"),
-        )
-    )
-    _cross_agg_df = _cross_agg_df[_cross_agg_df["n"] >= 3]
-    _fig_cross = make_aggregated_scatter(
-        _cross_agg_df,
-        x_col="x_med", y_col="y_med",
-        x_label="Guided RSCC (median across models)",
-        y_label="Guided Clustering Score (median across models)",
-        title="RSCC vs Clustering Score",
-        draw_diagonal=False, equal_aspect=False,
-        show_errors=False,
-        highlight_top_n=3, highlight_decreased=True,
-        highlight_proteins=["6b8x", "5mhx"],
-    )
-    if auto_save.value:
-        save_fig(_fig_cross, "rscc_scatterplots/rscc_vs_lddt_aggregated_all_models.png")
-
     mo.vstack([
-        mo.md("""## Aggregated Scatter Plots -- LDDT and Cross-Metric
+        mo.md("""## Aggregated Clustering Score Scatter
         Collapsed across main models using the per-(protein, selection) median; per-model spread is shown in the per-model figures."""),
-        mo.tabs({
-            "LDDT Scatter": _fig_lddt,
-            "RSCC vs LDDT": _fig_cross,
-        }),
-    ])
-    return
-
-
-@app.cell
-def _():
-    # Fig 09 (standalone LDDT baseline) merged into the combined cell above (fig_04_09).
-    return
-
-
-@app.cell
-def _(
-    MODELS_PROTENIX_GROUP,
-    MODELS_RF3_GROUP,
-    auto_save,
-    lddt_results_1,
-    make_ridge_plot,
-    mo,
-    save_fig,
-    smoothing,
-):
-    _all_lddt = lddt_results_1.query("selection_name != 'all altloc'")
-
-    fig_10 = make_ridge_plot(
-        _all_lddt.query("model_name not in @MODELS_ALT"),
-        "avg_silhouette_to_ref", smoothing=smoothing.value,
-    )
-    if auto_save.value:
-        save_fig(fig_10, "10_lddt_to_ref_all_guidance_distribution.png")
-        for _group, _tag in [(MODELS_PROTENIX_GROUP, "protenix_alts"), (MODELS_RF3_GROUP, "rf3_alts")]:
-            _fig = make_ridge_plot(
-                _all_lddt[_all_lddt["model_name"].isin(_group)],
-                "avg_silhouette_to_ref", smoothing=smoothing.value,
-            )
-            save_fig(_fig, f"10_lddt_to_ref_all_guidance_distribution_{_tag}.png")
-
-    mo.vstack([
-        mo.md("""## Figure 10 -- LDDT-to-Reference Across All Guidance Strengths
-        Silhouette scores at baseline, weak, and strong guidance.
-        `figures/10_lddt_to_ref_all_guidance_distribution[_variant].svg`"""),
-        fig_10,
-    ])
-    return
-
-
-@app.cell
-def _(
-    MODELS_PROTENIX_GROUP,
-    MODELS_RF3_GROUP,
-    auto_save,
-    lddt_merged,
-    make_ridge_plot,
-    mo,
-    save_fig,
-):
-    fig_11 = make_ridge_plot(
-        lddt_merged.query("model_name not in @MODELS_ALT"),
-        "delta_silhouette_to_ref", is_delta=True,
-    )
-    if auto_save.value:
-        save_fig(fig_11, "11_delta_lddt_to_ref_distribution.png")
-        for _group, _tag in [(MODELS_PROTENIX_GROUP, "protenix_alts"), (MODELS_RF3_GROUP, "rf3_alts")]:
-            _fig = make_ridge_plot(
-                lddt_merged[lddt_merged["model_name"].isin(_group)],
-                "delta_silhouette_to_ref", is_delta=True,
-            )
-            save_fig(_fig, f"11_delta_lddt_to_ref_distribution_{_tag}.png")
-
-    mo.vstack([
-        mo.md("""## Figure 11 -- Delta LDDT-to-Reference Distribution
-        Change in silhouette score from baseline.
-        `figures/11_delta_lddt_to_ref_distribution[_variant].svg`"""),
-        fig_11,
+        _fig_lddt,
     ])
     return
 

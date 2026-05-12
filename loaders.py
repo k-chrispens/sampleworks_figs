@@ -12,14 +12,12 @@ import re
 
 import numpy as np
 import pandas as pd
-import polars as pl
 
 from style import (
     GW_TO_STRENGTH,
     MODEL_NAME_ALIAS,
     OCC_FILTER,
     OCC_FILTER_ALTLOC,
-    TRAINING_CUTOFF_DATE,
 )
 
 # Proteins missing from the deposition-cutoffs CSV that the analysis still
@@ -150,67 +148,6 @@ def load_and_tag_path_csv(
     """
     df = pd.read_csv(csv_path)
     return tag_path_dataframe(df, filename_col, extra_renames, extra_cols)
-
-
-def load_and_tag_path_csv_fast(
-    csv_path: str,
-    filename_col: str = "path",
-    model_col: str = "model",
-) -> pd.DataFrame:
-    """Load a large path-tagged CSV using Polars for ~10-20x faster I/O.
-
-    Drop-in replacement for ``load_and_tag_path_csv`` on million-row files.
-    Uses Polars' multithreaded CSV reader and vectorized regex extraction
-    instead of per-row ``pandas.Series.apply``.
-
-    Parameters
-    ----------
-    csv_path : str
-        Path to the CSV file (e.g. per-residue tortoize results).
-    filename_col : str
-        Column containing file paths (renamed to ``"filename"``).
-    model_col : str
-        Column containing the model/ensemble index (renamed to ``"model_n"``).
-
-    Returns
-    -------
-    pd.DataFrame
-        Tagged DataFrame with the same columns as ``load_and_tag_path_csv``.
-    """
-
-    return (
-        pl.scan_csv(csv_path)
-        .rename({filename_col: "filename", model_col: "model_n"})
-        .with_columns(
-            pl.col("filename")
-            .str.extract_groups(
-                r"(?P<pdb_id>[0-9A-Za-z]{4})"
-                r"_(?P<occ_spec>[\d.]+occ[A-Z](?:_[\d.]+occ[A-Z])*)"
-                r"/(?P<model_name>.*?)/(?P<steering>.*?)"
-                r"/ens8_gw(?P<guidance_weight>[0-9\.]+)/"
-            )
-            .alias("_meta"),
-        )
-        .unnest("_meta")
-        .filter(pl.col("occ_spec") == OCC_FILTER)
-        .with_columns(
-            pl.col("guidance_weight").cast(pl.Float64),
-            pl.col("pdb_id").str.to_lowercase().alias("protein"),
-        )
-        .with_columns(
-            pl.col("guidance_weight")
-            .replace_strict(GW_TO_STRENGTH, default=None, return_dtype=pl.String)
-            .alias("guidance_strength"),
-        )
-        .with_columns(
-            pl.col("model_name")
-            .replace_strict(MODEL_NAME_ALIAS, default=None, return_dtype=pl.String)
-            .fill_null(pl.col("model_name"))
-            .alias("model_name"),
-        )
-        .collect()
-        .to_pandas()
-    )
 
 
 def load_rscc(csv_path: str) -> pd.DataFrame:

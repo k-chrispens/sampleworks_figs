@@ -108,7 +108,7 @@ def _(MODEL_DISPLAY, mo):
     _options = {
         v: k for k, v in MODEL_DISPLAY.items()
         if k in ("boltz2X-RAY", "boltz2MD", "protenix", "rf3",
-                  "protenix-mini", "protenix-tiny", "rf3-old", "rf3-chiral-off")
+                  "protenix-mini", "protenix-tiny", "rf3-chiral-off")
     }
     selected_model = mo.ui.dropdown(options=_options, value="Boltz2-XRD", label="Model")
     auto_save = mo.ui.switch(label="Auto-save figures", value=False)
@@ -220,7 +220,7 @@ def _(
 ):
     _spiral_nums = {
         "boltz2X-RAY": 12, "boltz2MD": 13, "protenix": 14, "rf3": 15,
-        "protenix-mini": 16, "protenix-tiny": 17, "rf3-old": 18, "rf3-chiral-off": 19,
+        "protenix-mini": 16, "protenix-tiny": 17, "rf3-chiral-off": 19,
     }
     _all_models = [
         m for m in list(_spiral_nums.keys())
@@ -296,7 +296,7 @@ def _(
 ):
     _agg_spiral_nums = {
         "boltz2X-RAY": 21, "boltz2MD": 22, "protenix": 23, "rf3": 24,
-        "protenix-mini": 25, "protenix-tiny": 26, "rf3-old": 27, "rf3-chiral-off": 28,
+        "protenix-mini": 25, "protenix-tiny": 26, "rf3-chiral-off": 28,
     }
     _all_models_agg = [
         m for m in list(_agg_spiral_nums.keys())
