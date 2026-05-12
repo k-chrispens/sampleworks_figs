@@ -20,6 +20,7 @@ from adjustText import adjust_text
 from matplotlib.cm import ScalarMappable
 from matplotlib.collections import LineCollection
 from matplotlib.colors import Normalize, to_rgb
+from matplotlib.legend_handler import HandlerTuple
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
@@ -42,11 +43,12 @@ plt.rcParams.update({
 OCC_FILTER = "0.5occA_0.5occB"
 OCC_FILTER_ALTLOC = "{'A': 0.5, 'B': 0.5}"
 
-# Pre-cutoff training-distribution analysis. The cutoff matches the date
-# embedded in the training-cluster CSV filename
-# (``max_rmsd_within_rmsd_2021-09-30_1A.csv``). Four proteins from the
-# initial-40 set are absent from the cutoffs CSV; all four are pre-2018
-# depositions, so they are filled in as "Pre".
+# Pre-cutoff training-distribution analysis. The training-cluster CSV
+# (``lddt_assignment_counts.csv``) holds, per (protein, selection), the
+# number of pre-cutoff PDB cluster members assigned to altloc A vs B by
+# lDDT comparison. Four proteins from the initial-40 set are absent from
+# the cutoffs CSV; all four are pre-2018 depositions, so they are filled
+# in as "Pre".
 TRAINING_CUTOFF_DATE = "2021-09-30"
 _MISSING_CUTOFF_FILL = {"1vme": "Pre", "4ole": "Pre", "5sop": "Pre", "6b8x": "Pre"}
 
@@ -662,15 +664,15 @@ def load_deposition_cutoffs(
 
 
 def load_training_cluster_counts(
-    path: str = "max_rmsd_within_rmsd_2021-09-30_1A.csv",
+    path: str = "lddt_assignment_counts.csv",
 ) -> pd.DataFrame:
     """Load per-selection pre-cutoff training-cluster counts.
 
     Lowercases ``protein`` and renames ``selection_part`` → ``selection`` so
     the frame joins directly onto LDDT/RSCC results. Adds ``frac_a_cluster``
-    (fraction of cluster members within RMSD threshold of altloc A) and
-    ``x_one_minus_fa = 1 − frac_a_cluster``. Both are NaN where the cluster
-    has no near-A and no near-B members (``A == B == 0``).
+    (fraction of cluster members assigned to altloc A by lDDT comparison)
+    and ``x_one_minus_fa = 1 − frac_a_cluster``. Both are NaN where the
+    cluster has no members assigned to either altloc (``A == B == 0``).
     """
     df = pd.read_csv(path)
     df["protein"] = df["protein"].str.lower()
@@ -678,14 +680,14 @@ def load_training_cluster_counts(
     # ``selection_part`` is the per-residue-range piece that joins to LDDT.
     # Drop the multi-part selection first so the rename doesn't collide.
     df = df.drop(columns=["selection"]).rename(columns={"selection_part": "selection"})
-    n_a = df["n_within_thresh_altloc_A"]
-    n_b = df["n_within_thresh_altloc_B"]
+    n_a = df["n_assigned_to_A"]
+    n_b = df["n_assigned_to_B"]
     total = n_a + n_b
     df["frac_a_cluster"] = np.where(total > 0, n_a / total.replace(0, np.nan), np.nan)
     df["x_one_minus_fa"] = 1.0 - df["frac_a_cluster"]
     return df[[
         "protein", "selection",
-        "n_within_thresh_altloc_A", "n_within_thresh_altloc_B",
+        "n_assigned_to_A", "n_assigned_to_B",
         "n_cluster_evaluated",
         "frac_a_cluster", "x_one_minus_fa",
     ]]
@@ -1965,8 +1967,8 @@ _TRAINING_BIAS_MAIN_MODELS = ["boltz2X-RAY", "boltz2MD", "protenix", "rf3"]
 
 def _training_bias_prepare_scatter_frame(df: pd.DataFrame, condition_label: str) -> pd.DataFrame:
     out = df.copy()
-    n_a = out["n_within_thresh_altloc_A"]
-    n_b = out["n_within_thresh_altloc_B"]
+    n_a = out["n_assigned_to_A"]
+    n_b = out["n_assigned_to_B"]
     s = (n_a + n_b).astype("float")
     out["s_cluster"] = s
     out["frac_b_cluster"] = np.where(s > 0, n_b / s.replace(0, np.nan), np.nan)
@@ -2038,91 +2040,581 @@ def make_training_bias_scatter(
         )
 
     fig.supxlabel("fraction in state B (training cluster)")
-    fig.supylabel("predicted fraction in state B")
+    fig.supylabel("fraction in state B (predicted)")
     return fig
 
 
-def make_training_bias_subset_grid(
-    baseline_df: pd.DataFrame,
-    optimal_df: pd.DataFrame,
-    model_name: str,
-    *,
-    small_cluster_max: int = 5,
-    jitter: float = 0.18,
-    seed: int = 0,
-) -> plt.Figure:
-    """2x2 strip plot of predicted B occupancy for out-of-training-distribution selections.
+def _training_bias_compute_alpha(s_values: np.ndarray, s_max: float) -> np.ndarray:
+    """Half-strength log-scaled per-point alpha used by the calibration figures.
 
-    Rows are subsets, columns are conditions:
-      - Row 0: post-cutoff depositions (``cutoff_status == "Post"``, any cluster size).
-      - Row 1: pre-cutoff selections with small structural neighborhood
-        (``cutoff_status == "Pre"`` and ``n_cluster_evaluated <= small_cluster_max``).
-      - Col 0: baseline frame; col 1: optimal-guidance frame.
+    Parameters
+    ----------
+    s_values
+        Cluster sample sizes (``s_cluster`` values) for each point.
+    s_max
+        Maximum ``s_cluster`` taken across the union of the baseline and
+        optimal-guidance prepared frames so alpha is comparable across panels
+        and across both calibration figures.
 
-    One jittered strip per panel (x is ignored — purely for visual separation of points).
+    Returns
+    -------
+    np.ndarray
+        Per-point alpha in ``[0, 1]``. Returns zeros when ``s_max <= 0``
+        (degenerate, should not occur post-filter).
     """
-    rng = np.random.default_rng(seed)
+    if s_max <= 0:
+        return np.zeros_like(s_values, dtype=float)
+    return np.clip(0.5 * np.log(s_values + 1.0) / np.log(s_max + 1.0), 0.0, 1.0)
 
-    def _subset(df: pd.DataFrame, *, post: bool) -> pd.DataFrame:
-        sub = df[df["model_name"] == model_name].copy()
-        sub = sub.dropna(subset=["b_occupancy", "cutoff_status"])
-        if post:
-            sub = sub[sub["cutoff_status"] == "Post"]
+
+def _training_bias_binned_means(
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    n_bins: int = 10,
+    min_count: int = 5,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Per-bin mean and sample std of ``y`` in ``n_bins`` equal-count bins of ``x``.
+
+    Bin edges are quantiles of ``x`` so each bin contains roughly the same
+    number of points; duplicate edges (from ties at boundary values) are
+    collapsed via ``np.unique`` so the effective bin count can be less than
+    ``n_bins``. The dot for each bin is plotted at the within-bin mean of
+    ``x`` (data-weighted) rather than the bin-edge midpoint, so the curve
+    traces the support of the data instead of an arbitrary bin grid. Bins
+    with fewer than ``min_count`` points return ``np.nan`` in both ``means``
+    and ``stds`` so callers can pass ``(centers, means)`` straight to
+    ``ax.plot`` and ``(centers, means - stds, means + stds)`` to
+    ``ax.fill_between``; matplotlib breaks the line / skips the band at NaN.
+    """
+    if len(x) == 0:
+        return np.array([]), np.array([]), np.array([])
+    quantiles = np.linspace(0.0, 1.0, n_bins + 1)
+    edges = np.unique(np.quantile(x, quantiles))
+    n_actual_bins = len(edges) - 1
+    if n_actual_bins <= 0:
+        return np.array([]), np.array([]), np.array([])
+    centers = np.full(n_actual_bins, np.nan)
+    means = np.full(n_actual_bins, np.nan)
+    stds = np.full(n_actual_bins, np.nan)
+    for i in range(n_actual_bins):
+        if i == n_actual_bins - 1:
+            mask = (x >= edges[i]) & (x <= edges[i + 1])
         else:
-            sub = sub[
-                (sub["cutoff_status"] == "Pre")
-                & (sub["n_cluster_evaluated"] <= small_cluster_max)
-            ]
-        return sub
+            mask = (x >= edges[i]) & (x < edges[i + 1])
+        if int(mask.sum()) >= min_count:
+            centers[i] = float(x[mask].mean())
+            means[i] = float(y[mask].mean())
+            stds[i] = float(np.std(y[mask], ddof=1))
+    return centers, means, stds
 
-    panels = [
-        [_subset(baseline_df, post=True),  _subset(optimal_df, post=True)],
-        [_subset(baseline_df, post=False), _subset(optimal_df, post=False)],
-    ]
-    row_labels = [
-        "post-cutoff",
-        f"pre-cutoff,\nn_cluster_evaluated ≤ {small_cluster_max}",
-    ]
-    col_labels = ["Baseline", "Optimal guidance"]
 
-    fig, axes = plt.subplots(
-        2, 2,
-        sharex=True, sharey=True,
-        figsize=(7, 8),
-        constrained_layout=True,
+def _training_bias_slope_r(
+    x: np.ndarray,
+    y: np.ndarray,
+) -> tuple[float, float] | None:
+    """OLS slope of ``y`` on ``x`` and Pearson r, or ``None`` when undefined."""
+    if len(x) < 2 or float(np.std(x)) == 0.0:
+        return None
+    slope = float(np.polyfit(x, y, 1)[0])
+    r = float(np.corrcoef(x, y)[0, 1])
+    return slope, r
+
+
+def _training_bias_draw_reference_lines(ax: plt.Axes) -> None:
+    """Draw y=x (training prior) and y=0.5 (guidance target) reference lines."""
+    ax.axhline(0.5, ls="--", color="#CCCCCC", lw=1, zorder=0)
+    ax.plot(
+        [-0.02, 1.02], [-0.02, 1.02],
+        ls="--", color="#AAAAAA", lw=1, zorder=1,
     )
 
-    for r in range(2):
-        for c in range(2):
-            ax = axes[r, c]
-            ax.axhline(0.5, ls=":", color="#CCCCCC", lw=0.8, zorder=1)
-            plot_df = panels[r][c]
-            if not plot_df.empty:
-                x = rng.uniform(-jitter, jitter, len(plot_df))
-                ax.scatter(
-                    x, plot_df["b_occupancy"],
-                    c=_TRAINING_BIAS_POINT_COLOR,
-                    s=55, alpha=0.75,
-                    linewidths=0,
-                    zorder=3,
-                )
-            ax.set_xlim(-0.5, 0.5)
-            ax.set_ylim(-0.02, 1.02)
-            ax.set_xticks([])
-            ax.set_yticks([0.0, 0.25, 0.5, 0.75, 1.0])
-            ax.set_yticklabels(["0 (A)", "0.25", "0.5", "0.75", "1 (B)"])
-            if r == 0:
-                ax.set_title(col_labels[c], fontsize=11)
 
-    for r in range(2):
-        axes[r, 0].annotate(
-            row_labels[r],
-            xy=(-0.28, 0.5), xycoords="axes fraction",
-            ha="center", va="center", rotation=90, fontsize=11,
+def make_training_bias_calibration_overlay(
+    baseline_df: pd.DataFrame,
+    optimal_df: pd.DataFrame,
+    *,
+    model_order: list[str] | None = None,
+    jitter: float = 0.01,
+    seed: int = 0,
+    max_cluster_size: int | None = None,
+    cutoff_status: str | None = None,
+    n_bins: int = 10,
+    min_bin_count: int = 5,
+) -> plt.Figure:
+    """1x4 calibration overlay of Baseline and Optimal guidance per model.
+
+    One panel per main model. Baseline (gray, ``#888888``) and Optimal
+    guidance (dark, ``#333333``) points are overlaid in the same axes, each
+    with a binned conditional-mean curve. Reference lines ``y = x`` (training
+    prior) and ``y = 0.5`` (guidance target) are drawn behind the points.
+    Each scatter axis has a marginal y-histogram on its right edge that
+    overlays both conditions' ``b_occupancy`` distributions. Slope of
+    ``b_occupancy`` on ``frac_b_cluster`` and Pearson r are annotated for the
+    Optimal-guidance condition only.
+
+    Parameters
+    ----------
+    baseline_df, optimal_df
+        Outputs of ``build_training_bias_df`` for the baseline (gw=0.0) and
+        optimal-guidance conditions, respectively.
+    model_order
+        Optional explicit model ordering. Defaults to
+        ``_TRAINING_BIAS_MAIN_MODELS``.
+    jitter
+        Symmetric uniform jitter half-width applied to x. Defaults to 0.01.
+    seed
+        Seed for the jitter RNG. Defaults to 0.
+    max_cluster_size
+        If set, restrict both conditions to rows with
+        ``n_cluster_evaluated <= max_cluster_size`` (sparse-training-prior subset).
+    cutoff_status
+        If set, restrict both conditions to rows with the given
+        ``cutoff_status`` (``"Pre"`` or ``"Post"``).
+    n_bins, min_bin_count
+        Forwarded to ``_training_bias_binned_means`` for both conditions'
+        binned conditional-mean curves. Lower these for small subsets so a
+        curve can still be drawn (e.g. ``n_bins=3, min_bin_count=2`` for
+        ~9-point subsets).
+    """
+    if model_order is None:
+        model_order = list(_TRAINING_BIAS_MAIN_MODELS)
+
+    baseline_prepared = _training_bias_prepare_scatter_frame(baseline_df, "Baseline")
+    optimal_prepared = _training_bias_prepare_scatter_frame(optimal_df, "Optimal guidance")
+
+    if max_cluster_size is not None:
+        baseline_prepared = baseline_prepared[baseline_prepared["n_cluster_evaluated"] <= max_cluster_size]
+        optimal_prepared = optimal_prepared[optimal_prepared["n_cluster_evaluated"] <= max_cluster_size]
+    if cutoff_status is not None:
+        baseline_prepared = baseline_prepared[baseline_prepared["cutoff_status"] == cutoff_status]
+        optimal_prepared = optimal_prepared[optimal_prepared["cutoff_status"] == cutoff_status]
+
+    combined = pd.concat([baseline_prepared, optimal_prepared], ignore_index=True)
+    s_max = float(combined["s_cluster"].max()) if not combined.empty else 1.0
+
+    fig = plt.figure(figsize=(14, 4.2))
+    outer = fig.add_gridspec(
+        1, 4, wspace=0.18,
+        left=0.06, right=0.995, top=0.92, bottom=0.18,
+    )
+    rng = np.random.default_rng(seed)
+
+    base_color = "#888888"
+    hist_bins = np.linspace(0.0, 1.0, 21)
+
+    anchor_sc: plt.Axes | None = None
+    for col, model_name in enumerate(model_order):
+        guidance_color = MODEL_PALETTE[model_name]
+        inner = outer[0, col].subgridspec(1, 2, width_ratios=[4, 1], wspace=0.08)
+        if anchor_sc is None:
+            ax_sc = fig.add_subplot(inner[0, 0])
+            anchor_sc = ax_sc
+        else:
+            ax_sc = fig.add_subplot(inner[0, 0], sharex=anchor_sc, sharey=anchor_sc)
+        ax_mg = fig.add_subplot(inner[0, 1], sharey=ax_sc)
+
+        _training_bias_draw_reference_lines(ax_sc)
+
+        baseline_panel = baseline_prepared[baseline_prepared["model_name"] == model_name]
+        optimal_panel = optimal_prepared[optimal_prepared["model_name"] == model_name]
+
+        for panel_df, color in [(baseline_panel, base_color), (optimal_panel, guidance_color)]:
+            n_points = len(panel_df)
+            if n_points == 0:
+                continue
+            x = panel_df["frac_b_cluster"].to_numpy() + rng.uniform(-jitter, jitter, n_points)
+            y = panel_df["b_occupancy"].to_numpy()
+            alpha = _training_bias_compute_alpha(panel_df["s_cluster"].to_numpy(), s_max)
+            rgba = np.zeros((n_points, 4))
+            rgba[:, :3] = to_rgb(color)
+            rgba[:, 3] = alpha
+            ax_sc.scatter(x, y, s=12, c=rgba, linewidths=0, zorder=3)
+
+        for panel_df, color, lw, alpha_curve, ms, line_zorder, band_alpha, band_zorder in [
+            (baseline_panel, base_color,     1.5, 0.8,  4, 4, 0.08, 3.4),
+            (optimal_panel,  guidance_color, 2.5, 0.95, 5, 5, 0.15, 3.6),
+        ]:
+            if panel_df.empty:
+                continue
+            centers, means, stds = _training_bias_binned_means(
+                panel_df["frac_b_cluster"].to_numpy(),
+                panel_df["b_occupancy"].to_numpy(),
+                n_bins=n_bins, min_count=min_bin_count,
+            )
+            ax_sc.fill_between(
+                centers, means - stds, means + stds,
+                color=color, alpha=band_alpha, linewidth=0, zorder=band_zorder,
+            )
+            ax_sc.plot(
+                centers, means,
+                color=color, lw=lw, alpha=alpha_curve,
+                marker="o", markersize=ms, zorder=line_zorder,
+            )
+
+        y_text = 0.97
+        for panel_df, text_color in [
+            (baseline_panel, base_color),
+            (optimal_panel, guidance_color),
+        ]:
+            slope_r = _training_bias_slope_r(
+                panel_df["frac_b_cluster"].to_numpy(),
+                panel_df["b_occupancy"].to_numpy(),
+            )
+            if slope_r is None:
+                continue
+            slope, r_val = slope_r
+            ax_sc.text(
+                0.03, y_text, f"slope = {slope:.2f}\nr = {r_val:.2f}",
+                transform=ax_sc.transAxes, ha="left", va="top",
+                fontsize=9, color=text_color, zorder=6,
+            )
+            y_text -= 0.24
+
+        ax_sc.set_xlim(-0.02, 1.02)
+        ax_sc.set_ylim(-0.02, 1.02)
+        ax_sc.set_xticks([0.0, 0.5, 1.0])
+        ax_sc.set_yticks([0.0, 0.5, 1.0])
+        ax_sc.set_box_aspect(1)
+        ax_sc.set_title(MODEL_DISPLAY.get(model_name, model_name), fontsize=11)
+        ax_sc.tick_params(labelleft=(col == 0))
+
+        if not baseline_panel.empty:
+            ax_mg.hist(
+                baseline_panel["b_occupancy"].to_numpy(),
+                bins=hist_bins, orientation="horizontal",
+                color=base_color, alpha=0.45,
+            )
+        if not optimal_panel.empty:
+            ax_mg.hist(
+                optimal_panel["b_occupancy"].to_numpy(),
+                bins=hist_bins, orientation="horizontal",
+                color=guidance_color, alpha=0.65,
+            )
+        ax_mg.set_box_aspect(4)
+        plt.setp(ax_mg.get_yticklabels(), visible=False)
+        ax_mg.tick_params(
+            axis="x", which="both", bottom=False, labelbottom=False,
         )
 
-    fig.supylabel("predicted fraction in state B")
-    fig.suptitle(MODEL_DISPLAY.get(model_name, model_name), fontsize=12)
+    fig.supxlabel("fraction in state B (training cluster)", y=0.04)
+    fig.supylabel("fraction in state B (predicted)", x=0.005)
+    return fig
+
+
+def make_training_bias_no_cluster_strip(
+    baseline_df: pd.DataFrame,
+    optimal_df: pd.DataFrame,
+    *,
+    model_order: list[str] | None = None,
+    jitter: float = 0.35,
+    seed: int = 0,
+) -> plt.Figure:
+    """1x4 strip plot for selections with no PDB neighbors in the training cluster.
+
+    Restricted to ``(protein, selection)`` rows where
+    ``n_assigned_to_A == 0`` and ``n_assigned_to_B == 0`` — i.e., no
+    pre-cutoff PDB cluster member is assigned to either altloc by lDDT
+    comparison. The calibration X-axis (``frac_b_cluster``) is undefined
+    for these rows, so they cannot appear on Figure 34; this figure shows
+    their predicted B-occupancy distribution per model instead.
+
+    Layout mirrors ``make_training_bias_calibration_overlay``: 1x4 row of
+    panels, one per main model. Each panel overlays a jittered strip of
+    Baseline (gray) and Optimal-guidance (model-colored) points, with a
+    marginal y-histogram on the right edge and a ``y = 0.5`` reference line.
+    Per-panel sample sizes are annotated.
+    """
+    if model_order is None:
+        model_order = list(_TRAINING_BIAS_MAIN_MODELS)
+
+    def _filter_no_cluster(df: pd.DataFrame) -> pd.DataFrame:
+        sub = df.dropna(subset=["b_occupancy"]).copy()
+        return sub[
+            (sub["n_assigned_to_A"] == 0)
+            & (sub["n_assigned_to_B"] == 0)
+        ]
+
+    baseline_nc = _filter_no_cluster(baseline_df)
+    optimal_nc = _filter_no_cluster(optimal_df)
+
+    fig = plt.figure(figsize=(14, 4.2))
+    outer = fig.add_gridspec(
+        1, 4, wspace=0.18,
+        left=0.06, right=0.995, top=0.92, bottom=0.18,
+    )
+    rng = np.random.default_rng(seed)
+
+    base_color = "#888888"
+    hist_bins = np.linspace(0.0, 1.0, 21)
+
+    anchor_sc: plt.Axes | None = None
+    for col, model_name in enumerate(model_order):
+        guidance_color = MODEL_PALETTE[model_name]
+        inner = outer[0, col].subgridspec(1, 2, width_ratios=[4, 1], wspace=0.08)
+        if anchor_sc is None:
+            ax_sc = fig.add_subplot(inner[0, 0])
+            anchor_sc = ax_sc
+        else:
+            ax_sc = fig.add_subplot(inner[0, 0], sharex=anchor_sc, sharey=anchor_sc)
+        ax_mg = fig.add_subplot(inner[0, 1], sharey=ax_sc)
+
+        ax_sc.axhline(0.5, ls="--", color="#CCCCCC", lw=1, zorder=1)
+
+        baseline_panel = baseline_nc[baseline_nc["model_name"] == model_name]
+        optimal_panel = optimal_nc[optimal_nc["model_name"] == model_name]
+
+        for panel_df, color in [(baseline_panel, base_color), (optimal_panel, guidance_color)]:
+            n_points = len(panel_df)
+            if n_points == 0:
+                continue
+            x = rng.uniform(-jitter, jitter, n_points)
+            y = panel_df["b_occupancy"].to_numpy()
+            ax_sc.scatter(x, y, s=12, c=color, alpha=0.5, linewidths=0, zorder=3)
+
+        ax_sc.text(
+            0.03, 0.97,
+            f"n = {len(optimal_panel)}",
+            transform=ax_sc.transAxes, ha="left", va="top",
+            fontsize=9, color="#333333", zorder=6,
+        )
+
+        ax_sc.set_xlim(-0.5, 0.5)
+        ax_sc.set_ylim(-0.02, 1.02)
+        ax_sc.set_xticks([])
+        ax_sc.set_yticks([0.0, 0.5, 1.0])
+        ax_sc.set_box_aspect(1)
+        ax_sc.set_title(MODEL_DISPLAY.get(model_name, model_name), fontsize=11)
+        ax_sc.tick_params(labelleft=(col == 0))
+
+        if not baseline_panel.empty:
+            ax_mg.hist(
+                baseline_panel["b_occupancy"].to_numpy(),
+                bins=hist_bins, orientation="horizontal",
+                color=base_color, alpha=0.45,
+            )
+        if not optimal_panel.empty:
+            ax_mg.hist(
+                optimal_panel["b_occupancy"].to_numpy(),
+                bins=hist_bins, orientation="horizontal",
+                color=guidance_color, alpha=0.65,
+            )
+        ax_mg.set_box_aspect(4)
+        plt.setp(ax_mg.get_yticklabels(), visible=False)
+        ax_mg.tick_params(
+            axis="x", which="both", bottom=False, labelbottom=False,
+        )
+
+    fig.supylabel("fraction in state B (predicted)", x=0.005)
+    return fig
+
+
+def make_training_bias_calibration_overlay_legend(
+    *,
+    model_order: list[str] | None = None,
+) -> plt.Figure:
+    """Standalone legend figure for ``make_training_bias_calibration_overlay``.
+
+    Two-row vertical legend: ``Baseline`` (single gray marker) and
+    ``Optimal guidance`` (four model-colored markers shown side-by-side via
+    ``HandlerTuple``). Reference lines (``y = x``, ``y = 0.5``) are not
+    included; they remain on the plot panels themselves.
+    """
+    if model_order is None:
+        model_order = list(_TRAINING_BIAS_MAIN_MODELS)
+
+    fig, ax = plt.subplots(figsize=(2.5, 0.9), constrained_layout=True)
+    ax.axis("off")
+
+    baseline_handle = Line2D(
+        [], [], color="#888888", lw=1.5, alpha=0.8,
+        marker="o", markersize=4,
+    )
+    optimal_handles = tuple(
+        Line2D(
+            [], [], color=MODEL_PALETTE[m], lw=2.5, alpha=0.95,
+            marker="o", markersize=5,
+        )
+        for m in model_order
+    )
+
+    ax.legend(
+        handles=[baseline_handle, optimal_handles],
+        labels=["Baseline", "Optimal guidance"],
+        handler_map={tuple: HandlerTuple(ndivide=None, pad=0.5)},
+        loc="center",
+        ncol=1,
+        frameon=False,
+        fontsize=9,
+    )
+    return fig
+
+
+def make_training_bias_small_multiples_v2(
+    baseline_df: pd.DataFrame,
+    optimal_df: pd.DataFrame,
+    *,
+    model_order: list[str] | None = None,
+    jitter: float = 0.01,
+    seed: int = 0,
+) -> plt.Figure:
+    """2x4 calibrated small multiples with per-panel mean curves and marginals.
+
+    Mirrors the geometry of ``make_training_bias_scatter`` (rows = condition,
+    columns = model) but adds, per panel: both reference lines (y = x training
+    prior, y = 0.5 guidance target), a binned conditional-mean curve, an OLS
+    slope and Pearson r annotation, and a single-condition marginal
+    y-histogram strip on the right edge.
+
+    Parameters
+    ----------
+    baseline_df, optimal_df
+        Outputs of ``build_training_bias_df`` for the baseline (gw=0.0) and
+        optimal-guidance conditions, respectively.
+    model_order
+        Optional explicit model ordering. Defaults to
+        ``_TRAINING_BIAS_MAIN_MODELS``.
+    jitter
+        Symmetric uniform jitter half-width applied to x. Defaults to 0.01.
+    seed
+        Seed for the jitter RNG. Defaults to 0.
+    """
+    if model_order is None:
+        model_order = list(_TRAINING_BIAS_MAIN_MODELS)
+
+    baseline_prepared = _training_bias_prepare_scatter_frame(baseline_df, "Baseline")
+    optimal_prepared = _training_bias_prepare_scatter_frame(optimal_df, "Optimal guidance")
+    combined = pd.concat([baseline_prepared, optimal_prepared], ignore_index=True)
+    s_max = float(combined["s_cluster"].max()) if not combined.empty else 1.0
+
+    fig = plt.figure(figsize=(13, 7), constrained_layout=True)
+    outer = fig.add_gridspec(2, 4, wspace=0.25, hspace=0.18)
+    rng = np.random.default_rng(seed)
+    hist_bins = np.linspace(0.0, 1.0, 21)
+
+    rows = [
+        (0, "Baseline", baseline_prepared),
+        (1, "Optimal guidance", optimal_prepared),
+    ]
+    axes_scatter: list[list[plt.Axes | None]] = [[None] * 4, [None] * 4]
+
+    for row, _condition_label, prepared_frame in rows:
+        for col, model_name in enumerate(model_order):
+            inner = outer[row, col].subgridspec(1, 2, width_ratios=[4, 1], wspace=0.05)
+            anchor = axes_scatter[0][0]
+            if anchor is None:
+                ax_sc = fig.add_subplot(inner[0, 0])
+            else:
+                ax_sc = fig.add_subplot(inner[0, 0], sharex=anchor, sharey=anchor)
+            ax_mg = fig.add_subplot(inner[0, 1], sharey=ax_sc)
+            axes_scatter[row][col] = ax_sc
+
+            _training_bias_draw_reference_lines(ax_sc)
+
+            panel_color = "#888888" if row == 0 else MODEL_PALETTE[model_name]
+
+            panel_df = prepared_frame[prepared_frame["model_name"] == model_name]
+            n_points = len(panel_df)
+            if n_points > 0:
+                x = panel_df["frac_b_cluster"].to_numpy() + rng.uniform(-jitter, jitter, n_points)
+                y = panel_df["b_occupancy"].to_numpy()
+                alpha = _training_bias_compute_alpha(panel_df["s_cluster"].to_numpy(), s_max)
+                rgba = np.zeros((n_points, 4))
+                rgba[:, :3] = to_rgb(panel_color)
+                rgba[:, 3] = alpha
+                ax_sc.scatter(x, y, s=12, c=rgba, linewidths=0, zorder=3)
+
+                centers, means, stds = _training_bias_binned_means(
+                    panel_df["frac_b_cluster"].to_numpy(),
+                    panel_df["b_occupancy"].to_numpy(),
+                )
+                ax_sc.fill_between(
+                    centers, means - stds, means + stds,
+                    color=panel_color, alpha=0.15, linewidth=0, zorder=4,
+                )
+                ax_sc.plot(
+                    centers, means,
+                    color=panel_color, lw=2.0,
+                    marker="o", markersize=4, zorder=5,
+                )
+
+                slope_r = _training_bias_slope_r(
+                    panel_df["frac_b_cluster"].to_numpy(),
+                    panel_df["b_occupancy"].to_numpy(),
+                )
+                if slope_r is not None:
+                    slope, r_val = slope_r
+                    ax_sc.text(
+                        0.03, 0.97, f"slope = {slope:.2f}\nr = {r_val:.2f}",
+                        transform=ax_sc.transAxes, ha="left", va="top",
+                        fontsize=9, zorder=6,
+                    )
+
+            ax_sc.set_xlim(-0.02, 1.02)
+            ax_sc.set_ylim(-0.02, 1.02)
+            ax_sc.set_xticks([0.0, 0.5, 1.0])
+            ax_sc.set_yticks([0.0, 0.5, 1.0])
+            if row == 0:
+                ax_sc.set_title(MODEL_DISPLAY.get(model_name, model_name), fontsize=11)
+            ax_sc.tick_params(labelbottom=(row == 1), labelleft=(col == 0))
+
+            if not panel_df.empty:
+                ax_mg.hist(
+                    panel_df["b_occupancy"].to_numpy(),
+                    bins=hist_bins, orientation="horizontal",
+                    color=panel_color, alpha=0.6,
+                )
+            plt.setp(ax_mg.get_yticklabels(), visible=False)
+            ax_mg.tick_params(
+                axis="x", which="both", bottom=False, labelbottom=False,
+            )
+            ax_mg.spines["bottom"].set_visible(False)
+
+    for row, label in [(0, "Baseline"), (1, "Optimal guidance")]:
+        anchor_ax = axes_scatter[row][0]
+        if anchor_ax is not None:
+            anchor_ax.annotate(
+                label,
+                xy=(-0.32, 0.5), xycoords="axes fraction",
+                ha="center", va="center", rotation=90, fontsize=11,
+            )
+
+    fig.supxlabel("fraction in state B (training cluster)")
+    fig.supylabel("fraction in state B (predicted)")
+    return fig
+
+
+def make_training_bias_calibration_explainer() -> plt.Figure:
+    """Single empty panel with the y=x and y=0.5 references and their bisector.
+
+    Intentionally minimal explanatory companion to the v2 small multiples:
+    same axes (``xlim = ylim = (-0.02, 1.02)``, ticks at ``[0, 0.5, 1]``),
+    ``y = x`` (training prior) and ``y = 0.5`` (guidance target) drawn as
+    light dashed reference lines, and a solid line bisecting them
+    (``y = 0.5 * x + 0.25``, slope 0.5 through the intersection at
+    ``(0.5, 0.5)``) for direct annotation in downstream editing.
+    """
+    fig, ax = plt.subplots(figsize=(4, 4), constrained_layout=True)
+
+    ax.plot(
+        [-0.02, 1.02], [-0.02, 1.02],
+        ls="--", color="#AAAAAA", lw=1, zorder=1,
+    )
+    ax.plot(
+        [-0.02, 1.02], [0.5, 0.5],
+        ls="--", color="#AAAAAA", lw=1, zorder=1,
+    )
+    ax.plot(
+        [-0.02, 1.02], [0.5 * -0.02 + 0.25, 0.5 * 1.02 + 0.25],
+        ls="-", color="#222222", lw=2.0, zorder=2,
+    )
+
+    ax.set_xlim(-0.02, 1.02)
+    ax.set_ylim(-0.02, 1.02)
+    ax.set_xticks([0.0, 0.5, 1.0])
+    ax.set_yticks([0.0, 0.5, 1.0])
+    ax.set_xlabel("fraction in state B (training cluster)")
+    ax.set_ylabel("fraction in state B (predicted)")
     return fig
 
 
@@ -2511,8 +3003,8 @@ def build_training_bias_df(
     -------
     pd.DataFrame
         Columns: ``protein``, ``selection``, ``model_name``,
-        ``guidance_weight``, ``b_occupancy``, ``n_within_thresh_altloc_A``,
-        ``n_within_thresh_altloc_B``, ``n_cluster_evaluated``,
+        ``guidance_weight``, ``b_occupancy``, ``n_assigned_to_A``,
+        ``n_assigned_to_B``, ``n_cluster_evaluated``,
         ``frac_a_cluster``, ``x_one_minus_fa``, ``cutoff_status``.
     """
     pieces: list[pd.DataFrame] = []
@@ -2545,7 +3037,7 @@ def build_training_bias_df(
     if not pieces:
         return pd.DataFrame(columns=[
             "protein", "selection", "model_name", "guidance_weight", "b_occupancy",
-            "n_within_thresh_altloc_A", "n_within_thresh_altloc_B", "n_cluster_evaluated",
+            "n_assigned_to_A", "n_assigned_to_B", "n_cluster_evaluated",
             "frac_a_cluster", "x_one_minus_fa", "cutoff_status",
         ])
     lddt_subset = pd.concat(pieces, ignore_index=True)
@@ -2568,8 +3060,8 @@ def build_training_bias_df(
             )
         ambiguous = cluster_df[
             (cluster_df["n_cluster_evaluated"] > 0)
-            & (cluster_df["n_within_thresh_altloc_A"] == 0)
-            & (cluster_df["n_within_thresh_altloc_B"] == 0)
+            & (cluster_df["n_assigned_to_A"] == 0)
+            & (cluster_df["n_assigned_to_B"] == 0)
         ]
         if not ambiguous.empty:
             print(
@@ -2583,7 +3075,7 @@ def build_training_bias_df(
     merged = merged.merge(cutoffs_df[["protein", "cutoff_status"]], on="protein", how="left")
     return merged[[
         "protein", "selection", "model_name", "guidance_weight", "b_occupancy",
-        "n_within_thresh_altloc_A", "n_within_thresh_altloc_B", "n_cluster_evaluated",
+        "n_assigned_to_A", "n_assigned_to_B", "n_cluster_evaluated",
         "frac_a_cluster", "x_one_minus_fa", "cutoff_status",
     ]]
 

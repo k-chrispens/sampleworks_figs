@@ -40,12 +40,12 @@ uv sync
   - Classification-aware scatters: `make_classified_scatter`, `make_classified_scatter_grid`, `make_classified_aggregated_scatter`
   - Aggregated (mean ± SD over proteins): `make_aggregated_scatter`, `make_aggregated_spiral_figure`
   - Spiral / tradeoff plots: `make_spiral_figure`, `make_tradeoff_grid`, `annotate_tradeoff_highlights`, `make_conceptual_tradeoff_figure`
-  - Training-distribution bias: `make_training_bias_scatter`, `make_training_bias_subset_grid`
+  - Training-distribution bias: `make_training_bias_scatter`, `make_training_bias_calibration_overlay` (supports `max_cluster_size` / `cutoff_status` subset filters and `n_bins` / `min_bin_count` overrides for sparse subsets), `make_training_bias_calibration_overlay_legend`, `make_training_bias_no_cluster_strip` (for the A=B=0 / undefined-X subset), `make_training_bias_small_multiples_v2`
 - Save helpers: `save_fig`, `save_model_legend` (writes `figures/model_legend.svg`), `save_per_model_figures`
 - Constants: `OCC_FILTER` (`"0.5occA_0.5occB"`), `MODEL_PALETTE` / `MODEL_DISPLAY` / `MODEL_NAME_ALIAS`, `GUIDANCE_PALETTE` / `GUIDANCE_MARKERS`, `GW_TO_STRENGTH`, `OPTIMAL_GW`, `CLASSIFICATION_PALETTE` / `CLASSIFICATION_DISPLAY` / `CLASSIFICATION_ORDER`, `NICE_XLABELS`, `MODELS_ALT` / `MODELS_PROTENIX_GROUP` / `MODELS_RF3_GROUP`, `FIGURE_DIR`, `TRAINING_CUTOFF_DATE`
 - Data transformations: `extract_metadata_from_path`, `add_simplified_metadata_columns` (adds `guidance_strength` bucket), `tag_path_dataframe`, `make_delta_frame` (guided − baseline), `build_training_bias_df` (joins lddt + training-cluster + cutoff frames), `robust_z_score`
 
-**Data flow**: CSV files in `initial40results/` (plus the root-level `max_rmsd_within_rmsd_2021-09-30_1A.csv` for training-cluster bias) → loaded/filtered by helpers → plotted in notebooks → SVGs saved to `figures/`.
+**Data flow**: CSV files in `initial40results/` (plus the root-level `lddt_assignment_counts.csv` for training-cluster bias) → loaded/filtered by helpers → plotted in notebooks → SVGs saved to `figures/`.
 
 **Key data conventions**:
 - All analysis uses the `OCC_FILTER` constant (`0.5occA_0.5occB`) — equal-occupancy alternate conformations only
@@ -53,7 +53,7 @@ uv sync
 - Guidance weights are bucketed into strengths via `GW_TO_STRENGTH`: 0.0=baseline, {0.005,0.01,0.1}=weak, {0.02,0.035,0.2,0.35}=medium, {0.05,0.5}=strong
 - Model groups for split plotting: `MODELS_ALT` (the four "alternate" model variants), `MODELS_PROTENIX_GROUP`, `MODELS_RF3_GROUP`. `filter_by_model_group(df, "main")` drops `MODELS_ALT`.
 - Notebooks expose toggles for cumulative distributions (`cumulative` switch + `cumulative_style` radio: KDE vs ECDF) and for excluding proteins with NaN RSCC (`exclude_nan_rscc`, sourced via `get_rscc_nan_proteins`).
-- Training-distribution sources: `max_rmsd_within_rmsd_2021-09-30_1A.csv` holds per-selection counts of pre-cutoff PDB depositions within 1Å RMSD of altloc A vs B (use `load_training_cluster_counts`); `initial40results/Sampleworks_initial_structures.csv` holds the per-protein deposition date and `Pre`/`Post` flag relative to `TRAINING_CUTOFF_DATE` (use `load_deposition_cutoffs`, which auto-fills the four pre-2018 PDBs missing from the CSV: `1VME, 4OLE, 5SOP, 6B8X`).
+- Training-distribution sources: `lddt_assignment_counts.csv` holds per-selection counts of pre-cutoff PDB cluster members assigned to altloc A vs B by lDDT comparison (use `load_training_cluster_counts`); `initial40results/Sampleworks_initial_structures.csv` holds the per-protein deposition date and `Pre`/`Post` flag relative to `TRAINING_CUTOFF_DATE` (use `load_deposition_cutoffs`, which auto-fills the four pre-2018 PDBs missing from the CSV: `1VME, 4OLE, 5SOP, 6B8X`).
 
 **Merge scripts** (`merge_combined_into_initial.py`, `merge_new_rscc_lddt.py`) are one-time data integration scripts that append new model results into `initial40results/`. They are not part of the regular analysis workflow.
 
@@ -94,7 +94,9 @@ uv sync
 **Training-distribution bias (predicted occupancy vs. pre-cutoff cluster composition):**
 1. Build the tidy frame with `build_training_bias_df(lddt_df, cluster_df, cutoffs_df, model_to_gw)` — pass `{m: 0.0 for m in MAIN_MODELS}` for the baseline figure, `{m: OPTIMAL_GW[m] for m in MAIN_MODELS}` for the optimal-guidance figure
 2. Plot 1 (full scatter): `make_training_bias_scatter(df)` — X = `1 − fraction A in pre-cutoff training cluster`, Y = predicted B occupancy, all models color-coded; reference lines `y = x` (training prior) and `y = 0.5` (density-only)
-3. Plot 2 (out-of-distribution 2x2 grid): `make_training_bias_subset_grid(baseline_df, optimal_df, model_name)` — per-model 2x2 strip plot. Rows: post-cutoff depositions (no `n_cluster_evaluated` filter) and pre-cutoff selections with `n_cluster_evaluated <= 5`. Columns: Baseline and Optimal guidance.
+3. Plot 2 (calibration overlay, Figure 34): `make_training_bias_calibration_overlay(baseline_df, optimal_df)` — 1×4 row of panels, one per main model. Baseline (gray) and Optimal guidance (dark) overlaid in the same axes; both reference lines (y = x training prior, y = 0.5 guidance target — both drawn as light dashed lines); per-condition binned conditional-mean curves; guidance-only slope/r annotation; per-panel two-condition marginal y-histogram on the right edge. The legend is rendered separately by `make_training_bias_calibration_overlay_legend()` so it can be arranged independently in the final layout. Pass `max_cluster_size=5` (Figure 30, plus `n_bins=3, min_bin_count=2` for the 9-point subset) or `cutoff_status="Post"` (Figure 31) to restrict both conditions to an out-of-distribution subset before plotting.
+4. Plot 3 (empty-cluster strip, Figure 32): `make_training_bias_no_cluster_strip(baseline_df, optimal_df)` — 1×4 strip plot for selections where `n_assigned_to_A == 0` AND `n_assigned_to_B == 0` (X = `frac_b_cluster` is undefined; these rows cannot appear on Figure 34). Per-panel jittered strip overlaying Baseline (gray) and Optimal guidance (model color), `y = 0.5` reference line, marginal y-histogram on the right edge, and an `n = …` annotation.
+5. Plot 4 (calibration small multiples v2, Figure 35): `make_training_bias_small_multiples_v2(baseline_df, optimal_df)` — 2×4 mirroring Figure 29 with per-panel conditional mean, per-panel slope/r annotation, per-panel single-condition marginal y-histogram, and an inset legend in the top-left panel. Use this for the "every panel earns its place" rhetorical comparison against Figure 29.
 
 ## Validation
 - For quick syntax/import checks while editing helpers, prefer `uv run python -c "import analysis_helpers"` over running the notebook headlessly. `uv run marimo run …` is slow.

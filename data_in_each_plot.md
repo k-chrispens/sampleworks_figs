@@ -521,10 +521,10 @@ The final `tradeoff_df` has one row per (protein, model, guidance_weight) at eve
 
 ---
 
-### Figures 29–33 — Training-Distribution Bias
+### Figures 29–36 — Training-Distribution Bias
 
 **Common inputs:**
-- `max_rmsd_within_rmsd_2021-09-30_1A.csv` — pre-cutoff (PDB depositions before 2021-09-30) per-selection counts of structures within 1Å RMSD of altloc A vs altloc B for each protein's sequence cluster. Loaded via `load_training_cluster_counts` (lowercases `protein`, renames `selection_part` → `selection`, drops the multi-part `selection` column to avoid name collision, computes `frac_a_cluster = n_A / (n_A + n_B)` and `x_one_minus_fa = 1 − frac_a_cluster`).
+- `lddt_assignment_counts.csv` — pre-cutoff (PDB depositions before 2021-09-30) per-selection counts of cluster members assigned to altloc A vs altloc B by lDDT comparison, for each protein's sequence cluster. Loaded via `load_training_cluster_counts` (lowercases `protein`, renames `selection_part` → `selection`, drops the multi-part `selection` column to avoid name collision, computes `frac_a_cluster = n_A / (n_A + n_B)` and `x_one_minus_fa = 1 − frac_a_cluster`).
 - `initial40results/Sampleworks_initial_structures.csv` — per-protein deposition date and `Pre`/`Post` cutoff flag. Loaded via `load_deposition_cutoffs` (lowercases PDB ID, dedupes the duplicate `9B22` row, fills the four missing proteins `1VME, 4OLE, 5SOP, 6B8X` as `Pre` since all are 2004–2017 depositions).
 - `initial40results/lddt_results.csv` — predicted occupancies; loaded via `load_lddt` (so the global `OCC_FILTER_ALTLOC` of `{'A': 0.5, 'B': 0.5}` and `MODEL_NAME_ALIAS` are already applied), then narrowed to main models via `filter_by_model_group(df, "main")` (drops `protenix-mini`, `protenix-tiny`, `rf3-old`, `rf3-chiral-off`).
 
@@ -539,12 +539,12 @@ The final `tradeoff_df` has one row per (protein, model, guidance_weight) at eve
 **What is plotted:** 4-column × 2-row grid of small scatter panels. Columns: Boltz2-XRD, Boltz2-MD, Protenix, RF3 (one per main model). Rows: top = Baseline (`guidance_weight == 0.0`), bottom = Optimal guidance (each model at its `OPTIMAL_GW`: `0.1` for Boltz2-XRD/Boltz2-MD/Protenix, `0.01` for RF3). Axes are shared across all 8 panels: `xlim = ylim = [-0.02, 1.02]`. Reference line `y = 0.5` (light gray dotted) drawn behind the points. Model identity is encoded by column position only — points are monochrome dark gray.
 
 **Axes:**
-- X = `frac_b_cluster = n_within_thresh_altloc_B / (n_within_thresh_altloc_A + n_within_thresh_altloc_B)` — fraction of pre-cutoff cluster within 1Å RMSD of altloc B. Computed directly from the loader's count columns (not via `1 − frac_a_cluster`).
+- X = `frac_b_cluster = n_assigned_to_B / (n_assigned_to_A + n_assigned_to_B)` — fraction of pre-cutoff cluster assigned to altloc B by lDDT comparison. Computed directly from the loader's count columns (not via `1 − frac_a_cluster`).
 - Y = `b_occupancy` — model-predicted fraction in state B, parsed from the second float of each `occupancies` cell.
 
 **Point encoding:**
 - Color: monochrome `#333333` (no model color).
-- Alpha: `alpha = log(s + 1) / log(s_max_global + 1)` where `s = n_within_thresh_altloc_A + n_within_thresh_altloc_B` and `s_max_global` is the maximum `s` over the union of the baseline and optimal frames. Alpha is comparable across all 8 panels by construction.
+- Alpha: `alpha = log(s + 1) / log(s_max_global + 1)` where `s = n_assigned_to_A + n_assigned_to_B` and `s_max_global` is the maximum `s` over the union of the baseline and optimal frames. Alpha is comparable across all 8 panels by construction.
 - Jitter: x is perturbed by uniform `±0.01` (seed = 0) so boundary pileups at `frac_b_cluster ∈ {0, 1}` are visible.
 
 **In-panel decoration:** No in-panel text. Column titles (top row only) use `MODEL_DISPLAY`. Row labels "Baseline" / "Optimal guidance" are placed to the left of the leftmost panel of each row. Figure-level X and Y labels: `fraction in state B (training cluster)` and `predicted fraction in state B`.
@@ -556,29 +556,104 @@ The final `tradeoff_df` has one row per (protein, model, guidance_weight) at eve
 - `s = 0` cases (no cluster member within RMSD threshold of either altloc) are dropped from this figure — they are part of the pre-cutoff small-cluster subset in Figures 30–33.
 - All upstream exclusions (occupancy filter, model alias, non-main models).
 
-#### Figures 30–33 — Out-of-Training-Distribution B Occupancy per Model
+#### Figure 34 — Calibration Overlay (Redesign A, 1x4)
 
-**Output filenames:**
-- `figures/30_training_bias_subset_grid_boltz2_xrd.svg`
-- `figures/31_training_bias_subset_grid_boltz2_md.svg`
-- `figures/32_training_bias_subset_grid_protenix.svg`
-- `figures/33_training_bias_subset_grid_rf3.svg`
+**Output:** `figures/34_training_bias_calibration_overlay.svg`.
 
-**What is plotted:** One figure per main model, each a 2×2 panel grid that shares X and Y. Rows = subset, columns = condition:
-- Row 0 — "post-cutoff": seed deposited after 2021-09-30 (`cutoff_status == "Post"`), no `n_cluster_evaluated` filter.
-- Row 1 — "pre-cutoff, n_cluster_evaluated ≤ 5": seed deposited before the cutoff but with at most 5 other pre-cutoff structures within RMSD threshold of either altloc.
-- Col 0 — Baseline (`guidance_weight == 0.0`); Col 1 — Optimal guidance (model's `OPTIMAL_GW`).
+**What is plotted:** 1-row × 4-column grid of panels, one per main model (Boltz2-XRD, Boltz2-MD, Protenix, RF3). Each panel pairs a scatter axis (left, width 4) with a marginal y-histogram strip (right, width 1) sharing y, via nested `add_gridspec` / `subgridspec`. Within each scatter, **Baseline** (gray, `#888888`) and **Optimal guidance** (dark, `#333333`) points are overlaid. Both reference lines are drawn behind the points: `y = x` (dashed `#AAAAAA`, lw=1, "training prior") and `y = 0.5` (dotted `#CCCCCC`, lw=0.8, "guidance target"). Per-condition binned conditional-mean curves are overlaid: baseline as a thin gray line through bin-center dots (`color="#888888", lw=1.5, alpha=0.8, marker="o", markersize=4`); optimal guidance as a thicker dark line (`color="#222222", lw=2.5, alpha=0.95, marker="o", markersize=5`). Conditional means use 10 **equal-count (quantile)** bins of `frac_b_cluster`; duplicate quantile edges from ties at 0 / 1 are collapsed (so the effective bin count can be less than 10), and each bin's dot sits at the within-bin **mean of x** rather than the bin midpoint. Bins with fewer than 5 points are skipped (NaN sentinel breaks the line). Slope of `b_occupancy` on `frac_b_cluster` and Pearson r are annotated for the **Optimal-guidance** condition only, in the upper-left corner of each scatter axis with the rounded white box style used in `make_scatter_comparison`. Each marginal axis overlays both conditions' `b_occupancy` distributions as horizontal histograms (`bins=np.linspace(0, 1, 21)`, baseline `alpha=0.45`, guidance `alpha=0.65`). A single horizontal legend above the panel row names the four artists ("Baseline (points & mean)", "Optimal guidance (points & mean)", "y = x (training prior)", "y = 0.5 (guidance target)").
 
-Each panel is a single jittered strip (uniform `±0.18`, seed = 0) — the X axis carries no quantitative meaning and ticks are hidden. Y = predicted fraction in state B (`b_occupancy`); 0 and 1 ticks carry an `(A)` / `(B)` annotation. Reference line `y = 0.5` (light gray dotted). Points are monochrome dark gray (`#333333`) — model identity is in the figure suptitle. Column titles on the top row ("Baseline", "Optimal guidance"); row labels placed to the left of the leftmost panel. Figure suptitle = `MODEL_DISPLAY[model_name]`.
+**Axes:**
+- X = `frac_b_cluster` (same definition as Figure 29).
+- Y = `b_occupancy` (same definition as Figure 29).
+- `xlim = ylim = [-0.02, 1.02]` for every panel; ticks at `[0, 0.5, 1]`.
+
+**Point encoding:**
+- Color: baseline `#888888`, optimal guidance `_TRAINING_BIAS_POINT_COLOR` = `#333333` (no per-model color).
+- Alpha: `alpha = 0.5 * log(s + 1) / log(s_max_global + 1)` then clipped to [0, 1], with `s_max_global` taken across the **union** of the baseline and optimal prepared frames so alpha is comparable across all panels. The half-strength factor lets the conditional-mean curves dominate visually.
+- Marker size: `s=12` (smaller than Figure 29's `s=18`).
+- Jitter: x is perturbed by uniform `±0.01` (seed = 0), drawn from a single shared RNG so the pattern is reproducible.
+
+**In-panel decoration:** Direct text labels "training prior" (at data coords `(0.78, 0.86)`) and "guidance target" (at `(0.78, 0.55)`) are placed in the **leftmost panel only** (`fontsize=8, color="#666666"`). Column titles use `MODEL_DISPLAY`. The rightmost marginal axis carries an `x` label `"count"` (`fontsize=8`); other marginals hide the x spine and ticks.
 
 **Data included:**
-- All rows with `cutoff_status == "Post"` (top row), regardless of `n_cluster_evaluated`.
-- All rows with `cutoff_status == "Pre"` and `n_cluster_evaluated ≤ 5` (bottom row).
-- For each column, `guidance_weight == 0.0` (Baseline) or the model's `OPTIMAL_GW` (Optimal guidance).
+- Same as Figure 29: one point per `(protein, selection_part, model_name, condition)` combination with `s > 0`, for both Baseline and Optimal-guidance conditions.
 
 **What is excluded:**
-- Pre-cutoff selections with `n_cluster_evaluated > 5` (those are in-distribution; Figure 29 covers the eval > 0 cases).
-- Rows missing a `cutoff_status` (none after the missing-protein fill) or a `b_occupancy`.
+- Same as Figure 29 (`s = 0` rows; all upstream filters: occupancy, model alias, non-main models).
+
+#### Figure 35 — Calibration Small Multiples v2 (Redesign B, 2x4)
+
+**Output:** `figures/35_training_bias_small_multiples_v2.svg`.
+
+**What is plotted:** 2-row × 4-column grid mirroring Figure 29's geometry (top = Baseline, bottom = Optimal guidance, columns = main models). Each scatter panel is paired with a single-condition marginal y-histogram strip on its right edge (width ratio 4:1 via nested `subgridspec`). Unlike Redesign A, the marginals are **per-panel** — each marginal shows only its own panel's condition. Every panel draws both reference lines (`y = x` dashed `#AAAAAA` and `y = 0.5` dotted `#CCCCCC`) — including the Baseline row, where the contrast against a near-zero slope is part of the rhetorical comparison. Each panel overlays its own binned conditional-mean curve (`color="#222222", lw=2.0, marker="o", markersize=4`, same equal-count-quantile / `min_count=5` logic as Figure 34) on top of a `mean ± std` shadow band (`color="#222222", alpha=0.15`, `ddof=1` sample std per bin, NaN where the bin is below the count threshold). Slope and Pearson r for the panel's own condition are annotated upper-left (same bbox style as Figure 34). The marginal histogram uses `bins=np.linspace(0, 1, 21), color=_TRAINING_BIAS_POINT_COLOR, alpha=0.6`.
+
+**Axes:**
+- X = `frac_b_cluster` (same definition as Figure 29).
+- Y = `b_occupancy` (same definition as Figure 29).
+- All scatter panels share x and y. `xlim = ylim = [-0.02, 1.02]`; ticks at `[0, 0.5, 1]`.
+
+**Point encoding:**
+- Color: monochrome `_TRAINING_BIAS_POINT_COLOR` (`#333333`); model identity is encoded by column position (Figure 29 convention).
+- Alpha: same formula as Figure 34 (half-strength log-scaled with `s_max` over the union of both frames).
+- Marker size: `s=12`. Jitter: uniform `±0.01` (seed = 0).
+
+**In-panel decoration:** No inline reference-line labels and no inset legend in this figure (they will be added separately). Column titles on the top row only, using `MODEL_DISPLAY`. Row labels "Baseline" / "Optimal guidance" are placed to the left of the leftmost panel of each row via the same `axes[row, 0].annotate(label, xy=(-0.32, 0.5), xycoords="axes fraction", rotation=90, fontsize=11)` pattern as `make_training_bias_scatter`. Marginal axes hide their x spine and tick labels.
+
+**Data included:**
+- Same as Figure 29 / Figure 34: one point per `(protein, selection_part, model_name, condition)` combination with `s > 0`, plotted in its panel's row × column cell.
+
+**What is excluded:**
+- Same as Figure 29 (`s = 0` rows; all upstream filters: occupancy, model alias, non-main models).
+
+#### Figure 36 — Calibration Explainer (Empty Panel)
+
+**Output:** `figures/36_training_bias_calibration_explainer.svg`.
+
+**What is plotted:** A single 4×4 inch panel with the same axis style as the v2 small multiples (`xlim = ylim = [-0.02, 1.02]`, ticks at `[0, 0.5, 1]`, axis labels `fraction in state B (training cluster)` / `predicted fraction in state B`). Three lines, no data:
+- `y = x` (training prior) — dashed `#AAAAAA`, lw=1.
+- `y = 0.5` (guidance target) — dashed `#AAAAAA`, lw=1 (note: dashed here, not dotted as in Figures 34/35).
+- Solid bisector at `y = 0.5*x + 0.25` — `color="#222222", lw=2.0`. Slope 0.5 through the intersection of the two reference lines at `(0.5, 0.5)`; runs from `(-0.02, 0.24)` to `(1.02, 0.76)`.
+
+No annotations, no title. Intended as a minimal explanatory companion to Figure 35 for downstream labeling.
+
+**Data included / excluded:** N/A (no data).
+
+#### Figures 30, 31 — Calibration Overlay on Out-of-Training-Distribution Subsets
+
+**Output filenames:**
+- `figures/30_training_bias_calibration_overlay_low_cluster.svg`
+- `figures/31_training_bias_calibration_overlay_post_cutoff.svg`
+
+**What is plotted:** Both figures use the exact Figure 34 layout (`make_training_bias_calibration_overlay`): a 1×4 row of panels, one per main model (`boltz2X-RAY`, `boltz2MD`, `protenix`, `rf3`), with Baseline and Optimal guidance overlaid in the same axes, binned conditional-mean curves for each condition, `y = x` (training prior) and `y = 0.5` (guidance target) reference lines, slope and Pearson r annotated for both conditions, and a per-panel marginal y-histogram on the right edge. The only difference from Figure 34 is the subset filter applied to both conditions before plotting (passed via the function's `max_cluster_size` and `cutoff_status` parameters).
+
+- **Figure 30 (low-cluster subset):** `max_cluster_size=5` — keeps only rows with `n_cluster_evaluated ≤ 5` (sparse training prior on both sides of the cutoff). Pre/post-cutoff is not filtered here.
+- **Figure 31 (post-cutoff subset):** `cutoff_status="Post"` — keeps only rows deposited after 2021-09-30 (`cutoff_status == "Post"`), regardless of cluster size.
+
+**Data included:**
+- Same upstream pipeline as Figure 34 (`build_training_bias_df` → `_training_bias_prepare_scatter_frame` requiring `s_cluster > 0`), plus the subset filter for each figure.
+- For each panel, baseline (`guidance_weight == 0.0`) and optimal-guidance (`OPTIMAL_GW[model]`) conditions are both drawn.
+
+**What is excluded:**
+- Same upstream exclusions as Figure 34 (rows missing `b_occupancy` or `frac_b_cluster`; rows with `s_cluster ≤ 0`; non-main models).
+- Figure 30: rows with `n_cluster_evaluated > 5`. Note: with only ~9 surviving points per panel, the binned mean uses `n_bins=3, min_bin_count=2` (overrides forwarded to `_training_bias_binned_means`) so a coarse trend curve is still drawn.
+- Figure 31: rows with `cutoff_status != "Post"` (the small set with missing `cutoff_status` is also dropped).
+
+#### Figure 32 — Empty-Training-Cluster Strip Plot
+
+**Output:** `figures/32_training_bias_no_cluster_strip.svg`.
+
+**What is plotted:** 1×4 row of panels (one per main model). For each panel, a jittered strip plot overlays Baseline (`#888888`) and Optimal-guidance (`MODEL_PALETTE[model]`) predicted B-occupancy values; the X axis carries no quantitative meaning (uniform jitter on `[-0.35, 0.35]`, seed=0) and its ticks are hidden. Each scatter axis has a marginal y-histogram on its right edge using the same 21-edge bins as Figures 34/35, with both conditions overlaid (`alpha=0.45` for Baseline, `0.65` for Optimal). A `y = 0.5` reference line is drawn behind the points (dashed, `#CCCCCC`). Each panel's Optimal-condition sample size is annotated in the top-left corner. Panel title = `MODEL_DISPLAY[model_name]`.
+
+This figure exists because the rows it shows have `frac_b_cluster = N_B / (N_A + N_B)` undefined (both numerator and denominator zero), so they cannot appear on the X-axis of Figures 34, 30, 31, or 35. They are nonetheless the most extreme out-of-distribution case (no pre-cutoff PDB cluster member assigned to either altloc by lDDT comparison) and worth visualizing separately.
+
+**Data included:**
+- All `build_training_bias_df` rows where `n_assigned_to_A == 0` AND `n_assigned_to_B == 0`, for the four main models, at Baseline (gw=0.0) and Optimal guidance (`OPTIMAL_GW[model]`).
+- At the time of writing this is ~117 selections per model panel for protenix and ~134 for the other three main models, spanning 14-17 distinct proteins.
+
+**What is excluded:**
+- Any row with at least one non-zero altloc count (those appear in Figures 29-31, 34, 35 instead).
+- Rows missing `b_occupancy` (NaN-occupancy rows are dropped upstream by `build_training_bias_df`).
+- Non-main models.
 
 ---
 
@@ -614,3 +689,6 @@ The following data **never appears in any plot**:
 | RSCC vs LDDT (per model) | N/A (specific gw) | Yes (LDDT side) | None | One model each |
 | RSCC vs LDDT Aggregated | N/A (specific gw) | Yes (LDDT side) | n < 3 proteins dropped | All 8 models |
 | LDDT Scatter Aggregated | N/A (specific gw) | Yes | n < 3 proteins dropped | All 8 models |
+| 34 Calibration Overlay | No | N/A (cluster-frame join) | None | Main only |
+| 35 Calibration Small Multiples v2 | No | N/A (cluster-frame join) | None | Main only |
+| 36 Calibration Explainer | N/A (no data) | N/A (no data) | None | N/A (no data) |

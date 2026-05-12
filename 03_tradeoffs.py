@@ -29,8 +29,12 @@ def _():
         make_aggregated_spiral_figure,
         make_delta_frame,
         make_spiral_figure,
+        make_training_bias_calibration_explainer,
+        make_training_bias_calibration_overlay,
+        make_training_bias_calibration_overlay_legend,
+        make_training_bias_no_cluster_strip,
         make_training_bias_scatter,
-        make_training_bias_subset_grid,
+        make_training_bias_small_multiples_v2,
         model_slug,
         save_fig,
         tag_path_dataframe,
@@ -53,8 +57,12 @@ def _():
         make_aggregated_spiral_figure,
         make_delta_frame,
         make_spiral_figure,
+        make_training_bias_calibration_explainer,
+        make_training_bias_calibration_overlay,
+        make_training_bias_calibration_overlay_legend,
+        make_training_bias_no_cluster_strip,
         make_training_bias_scatter,
-        make_training_bias_subset_grid,
+        make_training_bias_small_multiples_v2,
         model_slug,
         np,
         pd,
@@ -80,7 +88,13 @@ def _(MODEL_DISPLAY, mo):
     | 20 | Aggregated spiral (all models) | `20_aggregated_spiral_all.svg` |
     | 21-28 | Aggregated spiral per model | `{nn}_aggregated_spiral_{model}.svg` |
     | 29 | Training-cluster vs predicted state-B fraction -- 4x2 small multiples | `29_training_bias_small_multiples.svg` |
-    | 30-33 | Out-of-training-distribution B-occupancy strip, per model -- 2x2 (post-cutoff / pre-cutoff with n_cluster_evaluated ≤ 5) × (Baseline / Optimal) | `{nn}_training_bias_subset_grid_{model}.svg` |
+    | 30 | Calibration overlay on low-training-cluster subset (n_cluster_evaluated ≤ 5) -- 1x4 | `30_training_bias_calibration_overlay_low_cluster.svg` |
+    | 31 | Calibration overlay on post-cutoff subset -- 1x4 | `31_training_bias_calibration_overlay_post_cutoff.svg` |
+    | 32 | Strip plot of predicted B occupancy for selections with empty training clusters (A=B=0) -- 1x4 | `32_training_bias_no_cluster_strip.svg` |
+    | 34 | Calibration overlay (Redesign A) -- 1x4 | `34_training_bias_calibration_overlay.svg` |
+    | 34L | Calibration overlay legend (standalone) | `34_training_bias_calibration_overlay_legend.svg` |
+    | 35 | Calibration small multiples v2 (Redesign B) -- 2x4 | `35_training_bias_small_multiples_v2.svg` |
+    | 36 | Calibration explainer -- empty panel with y=x, y=0.5, and their bisector | `36_training_bias_calibration_explainer.svg` |
     """)
 
     _options = {
@@ -367,47 +381,156 @@ def _(
     auto_save,
     bias_baseline_df,
     bias_optimal_df,
-    make_training_bias_subset_grid,
+    make_training_bias_calibration_overlay,
     mo,
-    model_slug,
-    plt,
-    save_all,
     save_fig,
-    selected_model,
 ):
-    _subset_nums = {"boltz2X-RAY": 30, "boltz2MD": 31, "protenix": 32, "rf3": 33}
-    _main_models = list(_subset_nums.keys())
+    _fig = make_training_bias_calibration_overlay(bias_baseline_df, bias_optimal_df)
+    if auto_save.value:
+        save_fig(_fig, "34_training_bias_calibration_overlay.svg")
+    mo.vstack([
+        mo.md("""## Figure 34 -- Redesign A: Calibration Overlay (1x4)
+        Single row of four panels, one per main model. Baseline and Optimal guidance
+        overlaid in the same axes, with the y = x diagonal (training prior), y = 0.5
+        (guidance target), binned conditional means for each condition, and a
+        marginal y-histogram on the right edge of each panel. Guidance slope and
+        Pearson r annotated per panel.
+        `figures/34_training_bias_calibration_overlay.svg`"""),
+        _fig,
+    ])
+    return
 
-    if save_all.value and auto_save.value:
-        for _model in _main_models:
-            _f = make_training_bias_subset_grid(
-                bias_baseline_df, bias_optimal_df, _model
-            )
-            save_fig(
-                _f,
-                f"{_subset_nums[_model]:02d}_training_bias_subset_grid_{model_slug(_model)}.svg",
-            )
-            plt.close(_f)
 
-    _shown_model = selected_model.value if selected_model.value in _main_models else _main_models[0]
-    _subset_fig = make_training_bias_subset_grid(
-        bias_baseline_df, bias_optimal_df, _shown_model
+@app.cell
+def _(
+    auto_save,
+    make_training_bias_calibration_overlay_legend,
+    mo,
+    save_fig,
+):
+    _fig = make_training_bias_calibration_overlay_legend()
+    if auto_save.value:
+        save_fig(_fig, "34_training_bias_calibration_overlay_legend.svg")
+    mo.vstack([
+        mo.md("""## Figure 34L -- Calibration Overlay Legend (standalone)
+        Standalone legend for Figure 34, separated so it can be arranged
+        independently of the plot panels in the final layout.
+        `figures/34_training_bias_calibration_overlay_legend.svg`"""),
+        _fig,
+    ])
+    return
+
+
+@app.cell
+def _(
+    auto_save,
+    bias_baseline_df,
+    bias_optimal_df,
+    make_training_bias_small_multiples_v2,
+    mo,
+    save_fig,
+):
+    _fig = make_training_bias_small_multiples_v2(bias_baseline_df, bias_optimal_df)
+    if auto_save.value:
+        save_fig(_fig, "35_training_bias_small_multiples_v2.svg")
+    mo.vstack([
+        mo.md("""## Figure 35 -- Redesign B: Calibration Small Multiples v2 (2x4)
+        2x4 grid mirroring Figure 29's geometry (rows = condition, columns = model).
+        Each panel adds: both reference lines (y = x training prior, y = 0.5 guidance
+        target), a binned conditional-mean curve, an OLS slope and Pearson r
+        annotation, and a single-condition marginal y-histogram strip on the right
+        edge. Inset legend in the top-left panel names the curve and reference lines.
+        `figures/35_training_bias_small_multiples_v2.svg`"""),
+        _fig,
+    ])
+    return
+
+
+@app.cell
+def _(
+    auto_save,
+    make_training_bias_calibration_explainer,
+    mo,
+    save_fig,
+):
+    _fig = make_training_bias_calibration_explainer()
+    if auto_save.value:
+        save_fig(_fig, "36_training_bias_calibration_explainer.svg")
+    mo.vstack([
+        mo.md("""## Figure 36 -- Calibration Explainer (Empty Panel)
+        Intentionally minimal companion to Figure 35. Same axes as the v2 small
+        multiples panels: `y = x` (training prior, dashed) and `y = 0.5` (guidance
+        target, dashed) reference lines, plus a solid bisector at `y = 0.5*x + 0.25`
+        passing through their intersection at `(0.5, 0.5)`. No data, no annotations
+        -- intended for downstream labeling.
+        `figures/36_training_bias_calibration_explainer.svg`"""),
+        _fig,
+    ])
+    return
+
+
+@app.cell
+def _(
+    auto_save,
+    bias_baseline_df,
+    bias_optimal_df,
+    make_training_bias_calibration_overlay,
+    mo,
+    save_fig,
+):
+    _fig_low = make_training_bias_calibration_overlay(
+        bias_baseline_df, bias_optimal_df,
+        max_cluster_size=5,
+        n_bins=3, min_bin_count=2,
     )
-    if auto_save.value and not save_all.value:
-        save_fig(
-            _subset_fig,
-            f"{_subset_nums[_shown_model]:02d}_training_bias_subset_grid_{model_slug(_shown_model)}.svg",
-        )
+    _fig_post = make_training_bias_calibration_overlay(
+        bias_baseline_df, bias_optimal_df, cutoff_status="Post",
+    )
+    if auto_save.value:
+        save_fig(_fig_low, "30_training_bias_calibration_overlay_low_cluster.svg")
+        save_fig(_fig_post, "31_training_bias_calibration_overlay_post_cutoff.svg")
 
     mo.vstack([
-        mo.md("""## Figures 30-33 -- Out-of-Training-Distribution B Occupancy per Model
-        Predicted B occupancy for selections that fall outside the typical training distribution.
-        2x2 panel grid: rows = subset (post-cutoff depositions / pre-cutoff selections with
-        `n_cluster_evaluated ≤ 5`), columns = condition (Baseline / Optimal guidance). One
-        figure per main model. Toggle `Save all models at once` to batch-export.
-        `figures/30_training_bias_subset_grid_boltz2_xrd.svg` through
-        `figures/33_training_bias_subset_grid_rf3.svg`"""),
-        _subset_fig,
+        mo.md("""## Figures 30, 31 -- Calibration Overlay on OOD Subsets
+        Figure-34 layout (1x4, baseline + optimal overlaid with binned mean curves,
+        `y = x` and `y = 0.5` references, slope/r annotations, marginal y-histogram per
+        panel) restricted to two out-of-distribution subsets.
+
+        - Figure 30: selections with `n_cluster_evaluated ≤ 5` (sparse training prior).
+        - Figure 31: `cutoff_status == "Post"` (deposited after the training cutoff).
+
+        `figures/30_training_bias_calibration_overlay_low_cluster.svg`
+        `figures/31_training_bias_calibration_overlay_post_cutoff.svg`"""),
+        _fig_low,
+        _fig_post,
+    ])
+    return
+
+
+@app.cell
+def _(
+    auto_save,
+    bias_baseline_df,
+    bias_optimal_df,
+    make_training_bias_no_cluster_strip,
+    mo,
+    save_fig,
+):
+    _fig = make_training_bias_no_cluster_strip(bias_baseline_df, bias_optimal_df)
+    if auto_save.value:
+        save_fig(_fig, "32_training_bias_no_cluster_strip.svg")
+    mo.vstack([
+        mo.md("""## Figure 32 -- Empty-Training-Cluster Strip
+        1x4 strip plot (one panel per main model) for selections where the
+        pre-cutoff training cluster has zero structures assigned to either
+        altloc by lDDT comparison (`n_assigned_to_A == 0` AND
+        `n_assigned_to_B == 0`). These rows have `frac_b_cluster`
+        undefined and cannot appear on Figure 34, so they are shown here
+        instead: Baseline and Optimal-guidance points overlaid as a jittered
+        strip per panel, with a marginal y-histogram on the right edge and a
+        `y = 0.5` reference line. Per-panel `n` annotated.
+        `figures/32_training_bias_no_cluster_strip.svg`"""),
+        _fig,
     ])
     return
 
