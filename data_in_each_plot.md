@@ -329,6 +329,8 @@ The final `tradeoff_df` has one row per (protein, model, guidance_weight) at eve
 
 **What is plotted:** 1-row × 4-column grid of panels, one per main model. Each panel pairs a scatter axis (left, width 4) with a marginal y-histogram strip (right, width 1) sharing y. Within each scatter, Baseline (gray, `#888888`) and Optimal guidance (model color from `MODEL_PALETTE`) points are overlaid. Reference lines `y = x` and `y = 0.5` are drawn behind the points. Per-condition binned conditional-mean curves use 10 equal-count quantile bins (or `n_bins=3, min_bin_count=2` for sparse subsets); each bin's marker sits at the within-bin mean of x. Slope of `b_occupancy` on `frac_b_cluster` and Pearson r are annotated for both conditions. Marginal axes overlay both conditions' `b_occupancy` distributions.
 
+The main F34 cell calls the builder with `annotation_layout="split"`: the baseline slope/r block sits at top-left `(0.03, 0.97)` and the optimal-guidance slope/r block at bottom-right `(0.97, 0.03)`, so the two annotations never visually collide. The subset variants (Figures 30, 31) intentionally keep the default `"stacked"` layout (both annotations top-left).
+
 Legend (in `make_training_bias_calibration_overlay_legend`): two-row vertical legend — "Baseline" with a single gray marker, "Optimal guidance" with four model-colored markers shown side-by-side via `HandlerTuple`.
 
 #### Figure 35 — Calibration Small Multiples v2 (Redesign B, 2×4)
@@ -341,7 +343,7 @@ Legend (in `make_training_bias_calibration_overlay_legend`): two-row vertical le
 
 **Output:** `figures/36_training_bias_calibration_explainer.svg`.
 
-**What is plotted:** A single 4×4 inch panel with the same axis style as the v2 small multiples and three lines: `y = x` (training prior, dashed), `y = 0.5` (guidance target, dashed), and a solid bisector at `y = 0.5*x + 0.25` (slope 0.5 through `(0.5, 0.5)`). No data; intended as a minimal explanatory companion to Figure 35 for downstream labeling.
+**What is plotted:** A single 4×4 inch square-locked panel (`set_box_aspect(1)`) with the same axis style as the v2 small multiples and three lines: `y = x` (training prior, dashed), `y = 0.5` (guidance target, dashed), and a solid bisector at `y = 0.5*x + 0.25` (slope 0.5 through `(0.5, 0.5)`). Two italic black labels name the references — "training set prior" in the upper-right region rotated 45° to follow the `y = x` diagonal, and "perfect guidance" along the `y = 0.5` line left of center, unrotated. Two black double-headed arrows sit at the two ends of the solid bisector, perpendicular to it (purely visual, no text). No data; intended as a minimal explanatory companion to Figure 35 for downstream labeling.
 
 #### Figures 30, 31 — Calibration Overlay on OOD Subsets
 

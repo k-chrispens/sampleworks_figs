@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.colors import to_rgb
 from matplotlib.legend_handler import HandlerTuple
 from matplotlib.lines import Line2D
+from matplotlib.patches import FancyArrowPatch
 
 from style import MODEL_DISPLAY, MODEL_PALETTE
 
@@ -163,6 +166,7 @@ def make_training_bias_calibration_overlay(
     cutoff_status: str | None = None,
     n_bins: int = 10,
     min_bin_count: int = 5,
+    annotation_layout: Literal["stacked", "split"] = "stacked",
 ) -> plt.Figure:
     """1x4 calibration overlay of Baseline and Optimal guidance per model."""
     if model_order is None:
@@ -240,24 +244,43 @@ def make_training_bias_calibration_overlay(
                 marker="o", markersize=ms, zorder=line_zorder,
             )
 
-        y_text = 0.97
-        for panel_df, text_color in [
-            (baseline_panel, base_color),
-            (optimal_panel, guidance_color),
-        ]:
-            slope_r = _training_bias_slope_r(
-                panel_df["frac_b_cluster"].to_numpy(),
-                panel_df["b_occupancy"].to_numpy(),
-            )
-            if slope_r is None:
-                continue
-            slope, r_val = slope_r
-            ax_sc.text(
-                0.03, y_text, f"slope = {slope:.2f}\nr = {r_val:.2f}",
-                transform=ax_sc.transAxes, ha="left", va="top",
-                fontsize=9, color=text_color, zorder=6,
-            )
-            y_text -= 0.24
+        if annotation_layout == "split":
+            annotation_specs = [
+                (baseline_panel, base_color,     0.03, 0.97, "left",  "top"),
+                (optimal_panel,  guidance_color, 0.97, 0.03, "right", "bottom"),
+            ]
+            for panel_df, text_color, x_anc, y_anc, ha, va in annotation_specs:
+                slope_r = _training_bias_slope_r(
+                    panel_df["frac_b_cluster"].to_numpy(),
+                    panel_df["b_occupancy"].to_numpy(),
+                )
+                if slope_r is None:
+                    continue
+                slope, r_val = slope_r
+                ax_sc.text(
+                    x_anc, y_anc, f"slope = {slope:.2f}\nr = {r_val:.2f}",
+                    transform=ax_sc.transAxes, ha=ha, va=va,
+                    fontsize=9, color=text_color, zorder=6,
+                )
+        else:
+            y_text = 0.97
+            for panel_df, text_color in [
+                (baseline_panel, base_color),
+                (optimal_panel, guidance_color),
+            ]:
+                slope_r = _training_bias_slope_r(
+                    panel_df["frac_b_cluster"].to_numpy(),
+                    panel_df["b_occupancy"].to_numpy(),
+                )
+                if slope_r is None:
+                    continue
+                slope, r_val = slope_r
+                ax_sc.text(
+                    0.03, y_text, f"slope = {slope:.2f}\nr = {r_val:.2f}",
+                    transform=ax_sc.transAxes, ha="left", va="top",
+                    fontsize=9, color=text_color, zorder=6,
+                )
+                y_text -= 0.24
 
         ax_sc.set_xlim(-0.02, 1.02)
         ax_sc.set_ylim(-0.02, 1.02)
@@ -549,10 +572,41 @@ def make_training_bias_calibration_explainer() -> plt.Figure:
         ls="-", color="#222222", lw=2.0, zorder=2,
     )
 
+    ax.text(
+        0.78, 0.81, "training set prior",
+        color="black", fontsize=11, style="italic",
+        rotation=45, rotation_mode="anchor",
+        ha="center", va="bottom", zorder=3,
+    )
+    ax.text(
+        0.18, 0.52, "perfect guidance",
+        color="black", fontsize=11, style="italic",
+        ha="center", va="bottom", zorder=3,
+    )
+
+    # Perpendicular double-headed arrows at each end of the bisector.
+    # Bisector direction (1, 0.5) -> perpendicular unit (-0.5, 1)/sqrt(1.25).
+    perp = np.array([-0.5, 1.0]) / np.sqrt(1.25)
+    arrow_half = 0.09
+    arrow_kwargs = dict(
+        arrowstyle="<->,head_length=4,head_width=3",
+        color="#222222",
+        lw=2.0,
+        mutation_scale=1.0,
+        shrinkA=0, shrinkB=0,
+        zorder=4,
+    )
+    for x_c in (0.1, 0.9):
+        y_c = 0.5 * x_c + 0.25
+        tail = (x_c - perp[0] * arrow_half, y_c - perp[1] * arrow_half)
+        head = (x_c + perp[0] * arrow_half, y_c + perp[1] * arrow_half)
+        ax.add_patch(FancyArrowPatch(tail, head, **arrow_kwargs))
+
     ax.set_xlim(-0.02, 1.02)
     ax.set_ylim(-0.02, 1.02)
     ax.set_xticks([0.0, 0.5, 1.0])
     ax.set_yticks([0.0, 0.5, 1.0])
+    ax.set_box_aspect(1)
     ax.set_xlabel("fraction in state B (training cluster)")
     ax.set_ylabel("fraction in state B (predicted)")
     return fig

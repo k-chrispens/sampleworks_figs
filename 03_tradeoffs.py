@@ -393,7 +393,10 @@ def _(
     mo,
     save_fig,
 ):
-    _fig = make_training_bias_calibration_overlay(bias_baseline_df, bias_optimal_df)
+    _fig = make_training_bias_calibration_overlay(
+        bias_baseline_df, bias_optimal_df,
+        annotation_layout="split",
+    )
     if auto_save.value:
         save_fig(_fig, "34_training_bias_calibration_overlay.svg")
     mo.vstack([
@@ -486,6 +489,8 @@ def _(
     mo,
     save_fig,
 ):
+    # F30/F31 intentionally keep the default stacked annotation layout — the
+    # split-corner layout is only for the main F34 cell.
     _fig_low = make_training_bias_calibration_overlay(
         bias_baseline_df, bias_optimal_df,
         max_cluster_size=5,
