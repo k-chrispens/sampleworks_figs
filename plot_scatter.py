@@ -144,23 +144,7 @@ def make_scatter_comparison(
                             color="#333333", zorder=10,
                         ))
 
-        if label_far_from_ceiling_n > 0:
-            below_dist = 1.0 - df[y_col]
-            far = df.assign(_b=below_dist).nlargest(label_far_from_ceiling_n, "_b")
-            far = far[far["_b"] > 0]
-            far = far.loc[~far.index.isin(_seen_idx)]
-            if not far.empty:
-                ax.scatter(
-                    far[x_col], far[y_col] - far[x_col],
-                    facecolors=color, s=24, edgecolors="#F57C00", linewidths=1.2, zorder=3,
-                )
-                if _has_label_col:
-                    for _, r in far.iterrows():
-                        _seen_idx.add(r.name)
-                        texts.append(ax.text(
-                            r[x_col], r[y_col] - r[x_col], str(r[label_col]).upper(),
-                            color="#333333", zorder=10,
-                        ))
+        _pre_blue_seen = set(_seen_idx)
 
         if highlight_proteins and _has_label_col:
             wanted = {p.lower() for p in highlight_proteins}
@@ -178,6 +162,26 @@ def make_scatter_comparison(
                         r[x_col], r[y_col] - r[x_col], str(r[label_col]).upper(),
                         color="#333333", zorder=10,
                     ))
+
+        if label_far_from_ceiling_n > 0:
+            below_dist = 1.0 - df[y_col]
+            far = df.assign(_b=below_dist).nlargest(label_far_from_ceiling_n, "_b")
+            far = far[far["_b"] > 0]
+            far = far.loc[~far.index.isin(_pre_blue_seen)]
+            if not far.empty:
+                ax.scatter(
+                    far[x_col], far[y_col] - far[x_col],
+                    facecolors=color, s=24, edgecolors="#F57C00", linewidths=1.2, zorder=5,
+                )
+                if _has_label_col:
+                    for _, r in far.iterrows():
+                        if r.name in _seen_idx:
+                            continue
+                        _seen_idx.add(r.name)
+                        texts.append(ax.text(
+                            r[x_col], r[y_col] - r[x_col], str(r[label_col]).upper(),
+                            color="#333333", zorder=10,
+                        ))
 
     else:
         if delta_col is not None and delta_col in df.columns:
@@ -307,7 +311,7 @@ def make_scatter_comparison(
                     force_text=(1.0, 1.5),
                     force_static=(0.8, 1.2),
                     force_explode=(0.5, 0.8),
-                    ensure_inside_axes=False,
+                    ensure_inside_axes=True,
                     max_move=(40, 40),
                     time_lim=10,
                 )
@@ -344,9 +348,12 @@ def make_rscc_scatter(
 
     ``df`` must contain a ``label`` column formatted ``"<PDB> <range>"``
     as produced by the RSCC scatter cell in ``02_fit_quality.py``. Four
-    label sets are drawn: top-3 most improved, every decreased point, the
-    5 points furthest below the y = 1 − x ceiling, and the manually
-    highlighted ``6B8X 181-183`` and ``5MHX 162-164`` selections.
+    label sets are drawn: top-3 most improved (green), every decreased
+    point (red), a manually-curated set of biologically-relevant selections
+    (blue), and the 5 points furthest below the y = 1 − x ceiling (orange).
+    The orange far-from-ceiling markers are drawn last, so when a point
+    falls in both the blue and orange sets, orange wins visually while the
+    text label is added only once.
     """
     return make_scatter_comparison(
         df,
@@ -363,7 +370,14 @@ def make_rscc_scatter(
         residual=True,
         label_top_n=3,
         label_far_from_ceiling_n=5,
-        highlight_proteins=["6B8X 181-183", "5MHX 162-164"],
+        highlight_proteins=[
+            "6B8X 181-183", "5MHX 162-164",
+            "5SOP 131-133", "6DUR 389-391", "2QCV 2-4", "6RP1 5",
+            "6NI5 151-153", "6NI5 201-202", "6NI5 204-206",
+            "6NI5 209-210", "6NI5 213-215",
+            "6NI6 151-153", "6NI6 201-202", "6NI6 204-206",
+            "6NI6 209-210", "6NI6 213-215",
+        ],
     )
 
 

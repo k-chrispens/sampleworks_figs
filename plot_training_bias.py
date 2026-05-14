@@ -11,6 +11,7 @@ from matplotlib.colors import to_rgb
 from matplotlib.legend_handler import HandlerTuple
 from matplotlib.lines import Line2D
 from matplotlib.patches import FancyArrowPatch
+from scipy.stats import gaussian_kde
 
 from style import MODEL_DISPLAY, MODEL_PALETTE
 
@@ -318,10 +319,10 @@ def make_training_bias_no_cluster_strip(
     optimal_df: pd.DataFrame,
     *,
     model_order: list[str] | None = None,
-    jitter: float = 0.35,
+    jitter: float = 0.18,
     seed: int = 0,
 ) -> plt.Figure:
-    """1x4 strip plot for selections with no PDB neighbors in the training cluster."""
+    """1x4 half-violin + jittered strip for empty-training-cluster selections."""
     if model_order is None:
         model_order = list(_TRAINING_BIAS_MAIN_MODELS)
 
@@ -335,74 +336,84 @@ def make_training_bias_no_cluster_strip(
     baseline_nc = _filter_no_cluster(baseline_df)
     optimal_nc = _filter_no_cluster(optimal_df)
 
-    fig = plt.figure(figsize=(14, 4.2))
-    outer = fig.add_gridspec(
-        1, 4, wspace=0.18,
-        left=0.06, right=0.995, top=0.92, bottom=0.18,
+    fig, axes = plt.subplots(
+        1, 4, figsize=(5, 2.5),
+        sharey=True, constrained_layout=True,
     )
     rng = np.random.default_rng(seed)
 
     base_color = "#888888"
-    hist_bins = np.linspace(0.0, 1.0, 21)
+    kde_grid = np.linspace(0.0, 1.0, 200)
+    violin_half_width = 0.35
+    jitter_center = 0.5
+    centerline_gap = 0.05
 
-    anchor_sc: plt.Axes | None = None
     for col, model_name in enumerate(model_order):
+        ax = axes[col]
         guidance_color = MODEL_PALETTE[model_name]
-        inner = outer[0, col].subgridspec(1, 2, width_ratios=[4, 1], wspace=0.08)
-        if anchor_sc is None:
-            ax_sc = fig.add_subplot(inner[0, 0])
-            anchor_sc = ax_sc
-        else:
-            ax_sc = fig.add_subplot(inner[0, 0], sharex=anchor_sc, sharey=anchor_sc)
-        ax_mg = fig.add_subplot(inner[0, 1], sharey=ax_sc)
 
-        ax_sc.axhline(0.5, ls="--", color="#CCCCCC", lw=1, zorder=1)
+        ax.axhline(0.5, ls="--", color="#CCCCCC", lw=1, zorder=1)
 
         baseline_panel = baseline_nc[baseline_nc["model_name"] == model_name]
         optimal_panel = optimal_nc[optimal_nc["model_name"] == model_name]
 
-        for panel_df, color in [(baseline_panel, base_color), (optimal_panel, guidance_color)]:
+        for panel_df, color, fill_alpha in [
+            (baseline_panel, base_color, 0.35),
+            (optimal_panel, guidance_color, 0.5),
+        ]:
+            if len(panel_df) < 3:
+                continue
+            y = panel_df["b_occupancy"].to_numpy()
+            if float(np.std(y)) == 0.0:
+                continue
+            kde = gaussian_kde(y)
+            density = kde(kde_grid)
+            d_max = float(density.max())
+            if d_max <= 0:
+                continue
+            width = density / d_max * violin_half_width
+            x_left = -centerline_gap - width
+            x_right = np.full_like(width, -centerline_gap)
+            ax.fill_betweenx(
+                kde_grid, x_left, x_right,
+                color=color, alpha=fill_alpha, linewidth=0, zorder=2,
+            )
+            ax.plot(x_left, kde_grid, color=color, lw=1.0, zorder=3)
+
+        for panel_df, color in [
+            (baseline_panel, base_color),
+            (optimal_panel, guidance_color),
+        ]:
             n_points = len(panel_df)
             if n_points == 0:
                 continue
-            x = rng.uniform(-jitter, jitter, n_points)
+            x = jitter_center + rng.uniform(-jitter, jitter, n_points)
             y = panel_df["b_occupancy"].to_numpy()
-            ax_sc.scatter(x, y, s=12, c=color, alpha=0.5, linewidths=0, zorder=3)
+            ax.scatter(x, y, s=12, c=color, alpha=0.5, linewidths=0, zorder=4)
 
-        ax_sc.text(
+        ax.text(
             0.03, 0.97,
             f"n = {len(optimal_panel)}",
-            transform=ax_sc.transAxes, ha="left", va="top",
+            transform=ax.transAxes, ha="left", va="top",
             fontsize=9, color="#333333", zorder=6,
         )
 
-        ax_sc.set_xlim(-0.5, 0.5)
-        ax_sc.set_ylim(-0.02, 1.02)
-        ax_sc.set_xticks([])
-        ax_sc.set_yticks([0.0, 0.5, 1.0])
-        ax_sc.set_box_aspect(1)
-        ax_sc.set_title(MODEL_DISPLAY.get(model_name, model_name), fontsize=11)
-        ax_sc.tick_params(labelleft=(col == 0))
+        ax.set_xlim(-violin_half_width - centerline_gap - 0.05, jitter_center + jitter + 0.05)
+        ax.set_ylim(-0.02, 1.02)
+        ax.set_xticks([])
+        ax.set_xlabel(MODEL_DISPLAY.get(model_name, model_name))
 
-        if not baseline_panel.empty:
-            ax_mg.hist(
-                baseline_panel["b_occupancy"].to_numpy(),
-                bins=hist_bins, orientation="horizontal",
-                color=base_color, alpha=0.45,
-            )
-        if not optimal_panel.empty:
-            ax_mg.hist(
-                optimal_panel["b_occupancy"].to_numpy(),
-                bins=hist_bins, orientation="horizontal",
-                color=guidance_color, alpha=0.65,
-            )
-        ax_mg.set_box_aspect(4)
-        plt.setp(ax_mg.get_yticklabels(), visible=False)
-        ax_mg.tick_params(
-            axis="x", which="both", bottom=False, labelbottom=False,
-        )
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["bottom"].set_visible(False)
+        if col == 0:
+            ax.set_yticks([0.0, 0.5, 1.0])
+            ax.spines["left"].set_visible(True)
+        else:
+            ax.spines["left"].set_visible(False)
+            ax.tick_params(axis="y", which="both", left=False, labelleft=False)
 
-    fig.supylabel("fraction in state B (predicted)", x=0.005)
+    fig.supylabel("fraction in state B (predicted)")
     return fig
 
 

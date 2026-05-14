@@ -98,7 +98,7 @@ def _(MODEL_DISPLAY, mo):
     | 29 | Training-cluster vs predicted state-B fraction -- 4x2 small multiples | `29_training_bias_small_multiples.svg` |
     | 30 | Calibration overlay on low-training-cluster subset (n_cluster_evaluated ≤ 5) -- 1x4 | `30_training_bias_calibration_overlay_low_cluster.svg` |
     | 31 | Calibration overlay on post-cutoff subset -- 1x4 | `31_training_bias_calibration_overlay_post_cutoff.svg` |
-    | 32 | Strip plot of predicted B occupancy for selections with empty training clusters (A=B=0) -- 1x4 | `32_training_bias_no_cluster_strip.svg` |
+    | 32 | Half-violin + jittered strip of predicted B occupancy for selections with empty training clusters (A=B=0) -- 1x4 | `32_training_bias_no_cluster_strip.svg` |
     | 34 | Calibration overlay (Redesign A) -- 1x4 | `34_training_bias_calibration_overlay.svg` |
     | 34L | Calibration overlay legend (standalone) | `34_training_bias_calibration_overlay_legend.svg` |
     | 35 | Calibration small multiples v2 (Redesign B) -- 2x4 | `35_training_bias_small_multiples_v2.svg` |
@@ -534,14 +534,14 @@ def _(
         save_fig(_fig, "32_training_bias_no_cluster_strip.svg")
     mo.vstack([
         mo.md("""## Figure 32 -- Empty-Training-Cluster Strip
-        1x4 strip plot (one panel per main model) for selections where the
+        1x4 vertical strip (one panel per main model) for selections where the
         pre-cutoff training cluster has zero structures assigned to either
         altloc by lDDT comparison (`n_assigned_to_A == 0` AND
         `n_assigned_to_B == 0`). These rows have `frac_b_cluster`
         undefined and cannot appear on Figure 34, so they are shown here
-        instead: Baseline and Optimal-guidance points overlaid as a jittered
-        strip per panel, with a marginal y-histogram on the right edge and a
-        `y = 0.5` reference line. Per-panel `n` annotated.
+        instead: each panel renders a half-violin (KDE) on the left and a
+        jittered strip on the right, overlaying Baseline and Optimal-guidance.
+        `y = 0.5` reference line; per-panel `n` annotated. No marginal histogram.
         `figures/32_training_bias_no_cluster_strip.svg`"""),
         _fig,
     ])

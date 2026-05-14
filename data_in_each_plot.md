@@ -360,7 +360,7 @@ Legend (in `make_training_bias_calibration_overlay_legend`): two-row vertical le
 
 **Output:** `figures/32_training_bias_no_cluster_strip.svg`.
 
-**What is plotted:** 1×4 row of panels (one per main model). A jittered strip plot overlays Baseline (`#888888`) and Optimal-guidance (`MODEL_PALETTE[model]`) predicted B-occupancy values; the X axis carries no quantitative meaning. Each scatter axis has a marginal y-histogram on its right edge with both conditions overlaid. A `y = 0.5` reference line is drawn behind the points. Each panel's Optimal-condition sample size is annotated.
+**What is plotted:** 1×4 row of panels (one per main model). Each panel pairs a half-violin (Gaussian KDE, clipped to `[0, 1]`, Scott bandwidth) on the left with a jittered scatter on the right; the X axis carries no quantitative meaning. Baseline (`#888888`) and Optimal-guidance (`MODEL_PALETTE[model]`) are overlaid in both halves (KDEs share the left region; jittered points share the right region). The KDE is skipped for any condition with fewer than 3 points (or zero variance); jittered points are always drawn. A `y = 0.5` reference line is drawn behind the data. Spines are stripped to a single left spine on the leftmost panel only; model names appear below each panel as the x-axis label. Each panel's Optimal-condition sample size is annotated.
 
 This figure exists because its rows have `frac_b_cluster = N_B / (N_A + N_B)` undefined (both numerator and denominator zero), so they cannot appear on the X-axis of Figures 29, 30, 31, 34, or 35.
 
