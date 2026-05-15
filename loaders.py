@@ -185,6 +185,73 @@ def load_rscc(csv_path: str) -> pd.DataFrame:
     return df
 
 
+def load_min_altloc_rmsd(
+    csv_path: str,
+    model_name_override: str | None = None,
+) -> pd.DataFrame:
+    """Load per-(protein, model, gw, selection) minimum-RMSD-to-each-altloc results.
+
+    Mirrors :func:`load_rscc` structurally: applies the
+    :data:`OCC_FILTER_ALTLOC` 50/50 filter on ``altloc_occupancies``,
+    constructs ``model_name`` from ``model + method`` for ``boltz2`` rows
+    (otherwise from ``model``), and runs the result through
+    :data:`MODEL_NAME_ALIAS`. Drops rows where either ``min_rmsd_to_A`` or
+    ``min_rmsd_to_B`` is NaN, printing a one-line warning per CSV when any
+    rows were dropped.
+
+    Parameters
+    ----------
+    csv_path : str
+        Path to a ``min_altloc_rmsd_results_*.csv``.
+    model_name_override : str | None
+        If given, force-set ``model_name`` to this value (used for the
+        protenix-mini / protenix-tiny CSVs whose ``model`` column reads
+        ``"protenix"`` and is not otherwise distinguishable from the
+        canonical ``protenix`` rows). When ``None``, model_name is built
+        from the ``model``/``method`` columns and aliased.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: ``protein``, ``model_name``, ``ensemble_size``,
+        ``guidance_weight``, ``selection``, ``min_rmsd_to_A``,
+        ``min_rmsd_to_B``, plus ``selection_name`` and
+        ``guidance_strength`` from :func:`add_simplified_metadata_columns`.
+    """
+    df = pd.read_csv(csv_path, dtype={"error": str}).fillna({"error": ""})
+    _occ = OCC_FILTER_ALTLOC
+    df = df.query("altloc_occupancies == @_occ").copy()
+    if model_name_override is not None:
+        df["model_name"] = model_name_override
+    else:
+        df["model_name"] = df.apply(
+            lambda x: x["model"] + x["method"] if x["model"] == "boltz2" else x["model"],
+            axis=1,
+        )
+        df["model_name"] = df["model_name"].map(lambda x: MODEL_NAME_ALIAS.get(x, x))
+    n_before = len(df)
+    df = df.dropna(subset=["min_rmsd_to_A", "min_rmsd_to_B"])
+    n_dropped = n_before - len(df)
+    if n_dropped > 0:
+        print(
+            f"\u26a0\ufe0f  load_min_altloc_rmsd({csv_path}): dropped "
+            f"{n_dropped} rows with NaN min_rmsd_to_A/B"
+        )
+    df = df[
+        [
+            "protein",
+            "model_name",
+            "ensemble_size",
+            "guidance_weight",
+            "selection",
+            "min_rmsd_to_A",
+            "min_rmsd_to_B",
+        ]
+    ]
+    df = add_simplified_metadata_columns(df)
+    return df
+
+
 def get_rscc_nan_proteins(
     csv_path: str = "initial40results/rscc_results.csv",
     models: tuple[str, ...] = ("boltz2X-RAY", "boltz2MD", "protenix"),

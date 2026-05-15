@@ -7,6 +7,7 @@ from typing import Literal
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from matplotlib.colors import to_rgb
 from matplotlib.legend_handler import HandlerTuple
 from matplotlib.lines import Line2D
@@ -406,6 +407,112 @@ def make_training_bias_no_cluster_strip(
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         ax.spines["bottom"].set_visible(False)
+        if col == 0:
+            ax.set_yticks([0.0, 0.5, 1.0])
+            ax.spines["left"].set_visible(True)
+        else:
+            ax.spines["left"].set_visible(False)
+            ax.tick_params(axis="y", which="both", left=False, labelleft=False)
+
+    fig.supylabel("fraction in state B (predicted)")
+    return fig
+
+
+def make_training_bias_one_sided_strip(
+    baseline_df: pd.DataFrame,
+    optimal_df: pd.DataFrame,
+    *,
+    model_order: list[str] | None = None,
+    figsize: tuple[float, float] = (6, 2.8),
+    marker_size: float = 2.0,
+) -> plt.Figure:
+    """1x4 paired-swarm strip for strictly one-sided training-cluster selections.
+
+    Subsets per row: ``n_A > 0 AND n_B == 0`` (only-A, x=0) or
+    ``n_A == 0 AND n_B > 0`` (only-B, x=1). Equivalent to
+    ``frac_b_cluster in {0, 1}``. Baseline (gray) and Optimal-guidance (model
+    color) are overlaid via two ``sns.swarmplot`` calls per panel, so points
+    are non-overlapping within a condition but alpha-blended across conditions.
+    """
+    if model_order is None:
+        model_order = list(_TRAINING_BIAS_MAIN_MODELS)
+
+    def _filter_one_sided(df: pd.DataFrame) -> pd.DataFrame:
+        sub = df.dropna(subset=["b_occupancy"]).copy()
+        only_a = (sub["n_assigned_to_A"] > 0) & (sub["n_assigned_to_B"] == 0)
+        only_b = (sub["n_assigned_to_A"] == 0) & (sub["n_assigned_to_B"] > 0)
+        sub = sub[only_a | only_b].copy()
+        sub["altloc"] = np.where(
+            (sub["n_assigned_to_A"] > 0) & (sub["n_assigned_to_B"] == 0),
+            "A", "B",
+        )
+        return sub
+
+    baseline_os = _filter_one_sided(baseline_df)
+    optimal_os = _filter_one_sided(optimal_df)
+
+    fig, axes = plt.subplots(
+        1, 4, figsize=figsize,
+        sharey=True, constrained_layout=True,
+    )
+
+    base_color = "#888888"
+    mean_half_width = 0.25
+    altloc_order = ["A", "B"]
+
+    for col, model_name in enumerate(model_order):
+        ax = axes[col]
+        guidance_color = MODEL_PALETTE[model_name]
+
+        ax.axhline(0.5, ls="--", color="#CCCCCC", lw=1, zorder=1)
+
+        baseline_panel = baseline_os[baseline_os["model_name"] == model_name]
+        optimal_panel = optimal_os[optimal_os["model_name"] == model_name]
+
+        for panel_df, color in [
+            (baseline_panel, base_color),
+            (optimal_panel, guidance_color),
+        ]:
+            if panel_df.empty:
+                continue
+            sns.swarmplot(
+                data=panel_df, x="altloc", y="b_occupancy",
+                order=altloc_order, ax=ax,
+                color=color, alpha=0.7,
+                size=marker_size, linewidth=0,
+            )
+
+        for x_idx, altloc in enumerate(altloc_order):
+            for panel_df, color, mean_zorder in [
+                (baseline_panel[baseline_panel["altloc"] == altloc], base_color, 5),
+                (optimal_panel[optimal_panel["altloc"] == altloc], guidance_color, 6),
+            ]:
+                if panel_df.empty:
+                    continue
+                mean_val = float(panel_df["b_occupancy"].mean())
+                ax.plot(
+                    [x_idx - mean_half_width, x_idx + mean_half_width],
+                    [mean_val, mean_val],
+                    color=color, lw=2.0, zorder=mean_zorder,
+                )
+
+            n_strip = int((optimal_panel["altloc"] == altloc).sum())
+            ax.text(
+                x_idx, 1.04, f"n = {n_strip}",
+                ha="center", va="bottom",
+                fontsize=8, color="#333333", zorder=6,
+            )
+
+        ax.set_xlim(-0.5, 1.5)
+        ax.set_ylim(-0.02, 1.10)
+        ax.set_title(MODEL_DISPLAY.get(model_name, model_name), fontsize=11)
+        ax.set_xticks([0, 1])
+        ax.set_xticklabels(altloc_order)
+        ax.set_xlabel("")
+        ax.set_ylabel("")
+
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
         if col == 0:
             ax.set_yticks([0.0, 0.5, 1.0])
             ax.spines["left"].set_visible(True)

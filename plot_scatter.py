@@ -381,6 +381,190 @@ def make_rscc_scatter(
     )
 
 
+def make_min_rmsd_scatter(
+    df: pd.DataFrame,
+    *,
+    x_col: str = "min_rmsd_to_A",
+    y_col: str = "min_rmsd_to_B",
+    label_col: str = "label",
+    title: str,
+    pinned_highlights: tuple[str, ...] = ("6B8X 181-183", "5MHX 162-164"),
+    pinned_highlight_color: str = "#1565C0",
+    extra_highlight_groups: dict[str, list[str]] | None = None,
+    zoom_xylim: tuple[float, float] = (0.0, 3.0),
+) -> plt.Figure:
+    """Two-panel scatter of min RMSD to altloc A vs altloc B.
+
+    Renders the same content twice: a left panel auto-fit to the data range
+    (so global outliers stay visible) and a right panel zoomed to
+    *zoom_xylim* (off-scale points clip naturally — no special marker).
+    Each panel draws a dashed gray ``y = x`` diagonal across the visible
+    range, italic gray corner labels (``"closer to A"`` upper-left,
+    ``"closer to B"`` lower-right), the full point cloud in semi-transparent
+    gray, then the pinned + extra-highlight groups over-plotted with colored
+    rings + repelled text labels.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain columns *x_col*, *y_col*, *label_col*.
+    x_col, y_col, label_col : str
+        Column names.
+    title : str
+        Figure suptitle (e.g. ``"Minimum RMSD to Each Altloc"``).
+    pinned_highlights : tuple[str, ...]
+        Default highlight labels (case-insensitive match against
+        *label_col*) drawn in *pinned_highlight_color*.
+    pinned_highlight_color : str
+        Color for pinned highlights.
+    extra_highlight_groups : dict[str, list[str]] | None
+        Mapping ``{color: [labels]}`` for additional highlight groups.
+    zoom_xylim : tuple[float, float]
+        Lower / upper limit for the right (zoom) panel, applied to both x
+        and y axes.
+
+    Returns
+    -------
+    plt.Figure
+        Two-axes matplotlib figure ready to ``save_fig``.
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+    panels = [
+        (axes[0], "Auto-fit", None),
+        (axes[1], f"Zoom ({zoom_xylim[0]:g}, {zoom_xylim[1]:g}) \u00c5", zoom_xylim),
+    ]
+    for ax, panel_title, lim in panels:
+        _draw_min_rmsd_panel(
+            ax,
+            df,
+            x_col=x_col,
+            y_col=y_col,
+            label_col=label_col,
+            panel_title=panel_title,
+            lim=lim,
+            pinned_highlights=pinned_highlights,
+            pinned_highlight_color=pinned_highlight_color,
+            extra_highlight_groups=extra_highlight_groups,
+        )
+    fig.suptitle(title, y=1.02)
+    fig.tight_layout()
+    return fig
+
+
+def _draw_min_rmsd_panel(
+    ax,
+    df: pd.DataFrame,
+    *,
+    x_col: str,
+    y_col: str,
+    label_col: str,
+    panel_title: str,
+    lim: tuple[float, float] | None,
+    pinned_highlights: tuple[str, ...],
+    pinned_highlight_color: str,
+    extra_highlight_groups: dict[str, list[str]] | None,
+) -> None:
+    """Render one min-RMSD panel into *ax*.
+
+    Sets axis limits (auto-fit when ``lim`` is None, otherwise the supplied
+    square range), draws the dashed y = x diagonal across the visible range,
+    plots the full point cloud in semi-transparent gray, then over-plots the
+    pinned and extra highlight groups, restricting labels and rings to rows
+    visible inside the panel so adjust_text doesn't fight off-axes points.
+
+    Side effect: mutates *ax*.
+    """
+    finite = df[[x_col, y_col]].dropna()
+    if lim is None:
+        if not finite.empty:
+            upper = float(max(finite[x_col].max(), finite[y_col].max())) * 1.05
+        else:
+            upper = 1.0
+        upper = max(upper, 0.1)
+        lo, hi = 0.0, upper
+    else:
+        lo, hi = float(lim[0]), float(lim[1])
+    ax.set_xlim(lo, hi)
+    ax.set_ylim(lo, hi)
+    ax.set_aspect("equal", adjustable="box")
+
+    ax.plot([lo, hi], [lo, hi], ls="--", color="#AAAAAA", lw=1, zorder=1)
+
+    ax.text(
+        0.03, 0.97, "closer to A",
+        transform=ax.transAxes, fontstyle="italic", color="#888888",
+        ha="left", va="top",
+    )
+    ax.text(
+        0.97, 0.03, "closer to B",
+        transform=ax.transAxes, fontstyle="italic", color="#888888",
+        ha="right", va="bottom",
+    )
+
+    ax.scatter(
+        df[x_col], df[y_col],
+        c="#888888", s=18, alpha=0.45,
+        edgecolors="white", linewidths=0.4, zorder=2,
+    )
+
+    visible = (
+        (df[x_col] >= lo) & (df[x_col] <= hi)
+        & (df[y_col] >= lo) & (df[y_col] <= hi)
+    )
+
+    texts: list = []
+
+    def _highlight(picked: pd.DataFrame, color: str) -> None:
+        if picked.empty:
+            return
+        ax.scatter(
+            picked[x_col], picked[y_col],
+            facecolors="none", s=80, edgecolors=color,
+            linewidths=1.6, zorder=4,
+        )
+        for _, r in picked.iterrows():
+            texts.append(ax.text(
+                r[x_col], r[y_col], str(r[label_col]),
+                color="#333333", zorder=10, clip_on=True,
+            ))
+
+    if pinned_highlights and label_col in df.columns:
+        wanted = {p.lower() for p in pinned_highlights}
+        picked = df[df[label_col].str.lower().isin(wanted) & visible]
+        _highlight(picked, pinned_highlight_color)
+
+    if extra_highlight_groups and label_col in df.columns:
+        for color, labels in extra_highlight_groups.items():
+            wanted_extra = {p.lower() for p in labels}
+            picked_extra = df[df[label_col].str.lower().isin(wanted_extra) & visible]
+            _highlight(picked_extra, color)
+
+    if texts:
+        try:
+            adjust_text(
+                texts, ax=ax,
+                arrowprops=dict(arrowstyle="-", color="#888888", lw=0.5),
+                expand=(1.3, 1.5),
+                force_text=(0.5, 0.8),
+                force_static=(0.5, 0.8),
+                force_explode=(0.3, 0.6),
+                ensure_inside_axes=True,
+                max_move=(20, 20),
+            )
+        except Exception as exc:
+            warnings.warn(
+                f"make_min_rmsd_scatter: adjust_text failed ({exc}); "
+                "dropping labels rather than overlapping.",
+                stacklevel=2,
+            )
+            for t in texts:
+                t.remove()
+
+    ax.set_title(panel_title)
+    ax.set_xlabel("Min RMSD to Altloc A (\u00c5)")
+    ax.set_ylabel("Min RMSD to Altloc B (\u00c5)")
+
+
 def make_aggregated_scatter(
     agg_df: pd.DataFrame,
     *,

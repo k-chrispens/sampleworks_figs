@@ -35,6 +35,7 @@ def _():
         make_training_bias_calibration_overlay,
         make_training_bias_calibration_overlay_legend,
         make_training_bias_no_cluster_strip,
+        make_training_bias_one_sided_strip,
         make_training_bias_scatter,
         make_training_bias_small_multiples_v2,
     )
@@ -69,6 +70,7 @@ def _():
         make_training_bias_calibration_overlay,
         make_training_bias_calibration_overlay_legend,
         make_training_bias_no_cluster_strip,
+        make_training_bias_one_sided_strip,
         make_training_bias_scatter,
         make_training_bias_small_multiples_v2,
         model_slug,
@@ -98,7 +100,8 @@ def _(MODEL_DISPLAY, mo):
     | 29 | Training-cluster vs predicted state-B fraction -- 4x2 small multiples | `29_training_bias_small_multiples.svg` |
     | 30 | Calibration overlay on low-training-cluster subset (n_cluster_evaluated ≤ 5) -- 1x4 | `30_training_bias_calibration_overlay_low_cluster.svg` |
     | 31 | Calibration overlay on post-cutoff subset -- 1x4 | `31_training_bias_calibration_overlay_post_cutoff.svg` |
-    | 32 | Half-violin + jittered strip of predicted B occupancy for selections with empty training clusters (A=B=0) -- 1x4 | `32_training_bias_no_cluster_strip.svg` |
+    | 32 | Empty-training-cluster strip (`A==B==0`): half-violin + jittered strip of predicted B occupancy -- 1x4 | `32_training_bias_no_cluster_strip.svg` |
+    | 33 | One-sided training-cluster strip (`A>0 XOR B>0`): paired A/B swarms of predicted B occupancy per model -- 1x4 | `33_training_bias_one_sided_strip.svg` |
     | 34 | Calibration overlay (Redesign A) -- 1x4 | `34_training_bias_calibration_overlay.svg` |
     | 34L | Calibration overlay legend (standalone) | `34_training_bias_calibration_overlay_legend.svg` |
     | 35 | Calibration small multiples v2 (Redesign B) -- 2x4 | `35_training_bias_small_multiples_v2.svg` |
@@ -543,6 +546,36 @@ def _(
         jittered strip on the right, overlaying Baseline and Optimal-guidance.
         `y = 0.5` reference line; per-panel `n` annotated. No marginal histogram.
         `figures/32_training_bias_no_cluster_strip.svg`"""),
+        _fig,
+    ])
+    return
+
+
+@app.cell
+def _(
+    auto_save,
+    bias_baseline_df,
+    bias_optimal_df,
+    make_training_bias_one_sided_strip,
+    mo,
+    save_fig,
+):
+    _fig = make_training_bias_one_sided_strip(bias_baseline_df, bias_optimal_df)
+    if auto_save.value:
+        save_fig(_fig, "33_training_bias_one_sided_strip.svg")
+    mo.vstack([
+        mo.md("""## Figure 33 -- One-sided Training-Cluster Strip
+        1x4 paired-swarm strip (one panel per main model) for selections where
+        the pre-cutoff training cluster is strictly one-sided -- either
+        `n_assigned_to_A > 0 AND n_assigned_to_B == 0` (only-A, left strip) or
+        `n_assigned_to_A == 0 AND n_assigned_to_B > 0` (only-B, right strip).
+        Equivalent to `frac_b_cluster in {0, 1}`. These rows pile up at
+        `x in {0, 1}` on Figure 34; this companion breaks them out by altloc.
+        Baseline (gray, alpha 0.7) drawn first; Optimal guidance (model color,
+        alpha 0.7) drawn on top, so points alpha-blend across conditions but
+        do not overlap within a condition. Horizontal mean tick per condition.
+        `y = 0.5` reference line; per-strip `n` annotated.
+        `figures/33_training_bias_one_sided_strip.svg`"""),
         _fig,
     ])
     return

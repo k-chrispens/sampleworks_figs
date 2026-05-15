@@ -164,6 +164,56 @@ Several figures are rendered in three variants via a UI dropdown. The model grou
 
 ---
 
+### Aggregated Min-RMSD Scatter — Min RMSD to Altloc A vs B
+
+**Output:** `figures/rmsd_scatterplots/min_rmsd_scatter_aggregated_all_models.svg`.
+
+**What is plotted:** Two side-by-side panels in one SVG. Each point is one **(protein, selection)** pair; X = median across main models of `min_rmsd_to_A` (the per-protein/selection minimum RMSD across the 8-member ensemble to altloc A), Y = same for altloc B. Both panels share a dashed gray `y = x` diagonal across the visible range, italic gray corner cues (`"closer to A"` upper-left, `"closer to B"` lower-right), equal aspect, and the same point cloud / highlights:
+
+- **Left panel (Auto-fit):** axes auto-scaled to the data range (with a 5% padding) so global outliers stay visible.
+- **Right panel (Zoom (0, 3) Å):** axes pinned to `[0, 3]` Å × `[0, 3]` Å so the dense low-RMSD cluster is readable. Off-scale points clip naturally — no special marker.
+
+**Highlights:**
+- Pinned (blue, `#1565C0`): `6B8X 181-183` and `5MHX 162-164` (the same selections circled in the aggregated RSCC scatter, for direct cross-reference).
+- Optional `extra_highlight_groups: dict[str, list[str]]` knob — caller passes `{color: [labels]}` to ring extra selections. Highlights are restricted to rows visible inside each panel before label placement so `adjust_text` doesn't fight off-axes points.
+
+**Source data:**
+- `min_altloc_rmsd_results_boltz_protenix.csv` — Boltz2-XRD, Boltz2-MD, Protenix.
+- `min_altloc_rmsd_results_protenix_mini.csv` — Protenix-Mini (`model_name_override="protenix-mini"` because the CSV stores `model == "protenix"`).
+- `min_altloc_rmsd_results_protenix_tiny.csv` — Protenix-Tiny (same override).
+- `min_altloc_rmsd_results_rf3_fixed.csv` — RF3.
+
+Each loader applies the standard 50/50 occupancy filter (`altloc_occupancies == "{'A': 0.5, 'B': 0.5}"`), aliases the model name through `MODEL_NAME_ALIAS`, and **drops rows where either `min_rmsd_to_A` or `min_rmsd_to_B` is NaN**, printing one warning per CSV with the dropped count.
+
+**Data construction:**
+1. Concat the four loader outputs into `min_rmsd_all`; apply the `nan_rscc_proteins` exclusion (when the toggle is on).
+2. `min_rmsd_per_model_df`: drop `selection_name == "all altloc"`, inner-join on `model_name` with the `OPTIMAL_GW` table, restrict to `guidance_weight == optimal_gw`, attach `label = "<PDB> <residue range>"` via `format_residue_range`. Print a one-line audit per model when any (protein, selection) pair existed at some gw but lacked a row at the model's optimal gw.
+3. Aggregated frame: restrict to main models (`model_name not in MODELS_ALT`), group by `(protein, selection, label)`, take median of both RMSDs, count contributing models, drop groups with `n < 3`.
+
+**What is excluded:**
+- Alternative models (`MODELS_ALT`) for the aggregated frame only.
+- `selection_name == "all altloc"` (chain-level rows).
+- All occupancy configurations other than 50/50 (loader filter).
+- All guidance weights other than each model's optimal weight.
+- (protein, selection) pairs with fewer than 3 main-model contributions.
+- Rows with NaN `min_rmsd_to_A` or `min_rmsd_to_B` (loader filter).
+
+---
+
+### Per-Model Min-RMSD Scatter Plots
+
+**Output:** `figures/rmsd_scatterplots/min_rmsd_scatter_{model_slug}.svg` per model that has a min-RMSD CSV.
+
+**What is plotted:** Same two-panel layout as the aggregated figure but for one model at a time, drawn from `min_rmsd_per_model_df` filtered to the dropdown-selected model. Title is `"Minimum RMSD to Each Altloc: {ModelDisplay}"`. No baseline overlay; X / Y are the model's raw `min_rmsd_to_A` / `min_rmsd_to_B` at its optimal guidance weight. Same default + `extra_highlight_groups` highlight knobs as the aggregated figure.
+
+**Models with data:** `boltz2X-RAY`, `boltz2MD`, `protenix`, `protenix-mini`, `protenix-tiny`, `rf3` (the alternative models `protenix-mini` and `protenix-tiny` *do* appear here; only the aggregated figure drops them).
+
+**Empty case:** When the dropdown selects a model with no min-RMSD CSV (currently only `rf3-chiral-off`), the cell renders `mo.callout("No min-RMSD data available for {ModelDisplay}.", kind="warn")` in place of the figure — no traceback, no empty axes. The `save_all_scatter` switch iterates only over models with data via `save_per_model_figures`.
+
+**What is excluded:** same as the aggregated figure, except the `MODELS_ALT` and `n < 3` constraints don't apply (each model's own (protein, selection) pairs are plotted as-is).
+
+---
+
 ### RSCC vs LDDT Cross-Metric Scatter Plots (per model)
 
 **What is plotted:** Scatter comparing RSCC (x) vs LDDT silhouette-to-ref (y), both at the optimal guidance weight. One point per protein. Regression line + Pearson r displayed.
@@ -366,6 +416,16 @@ This figure exists because its rows have `frac_b_cluster = N_B / (N_A + N_B)` un
 
 **Data included:** rows where `n_assigned_to_A == 0` AND `n_assigned_to_B == 0`, for the four main models, at Baseline and Optimal guidance.
 
+#### Figure 33 — One-sided Training-Cluster Strip Plot
+
+**Output:** `figures/33_training_bias_one_sided_strip.svg`.
+
+**What is plotted:** 1×4 row of panels (one per main model, model name as panel title). Each panel holds two side-by-side beeswarm strips: left = "only-A" (`n_assigned_to_A > 0 AND n_assigned_to_B == 0`, `frac_b_cluster == 0`), right = "only-B" (`n_assigned_to_A == 0 AND n_assigned_to_B > 0`, `frac_b_cluster == 1`). X-tick labels are `A` and `B`; the X axis carries no quantitative meaning beyond the altloc label. Beeswarm packing uses `sns.swarmplot` with two overlaid calls per panel — Baseline (`#888888`, alpha 0.7) drawn first, Optimal-guidance (`MODEL_PALETTE[model]`, alpha 0.7) drawn on top — so points are non-overlapping within a condition but alpha-blended across conditions. Each strip carries two horizontal mean ticks (gray for Baseline, model color for Optimal) at the strip's x-center, half-width ±0.25. A `y = 0.5` reference line is drawn behind the data. Per-strip `n = …` annotated just above the swarm (Baseline and Optimal share row counts via the join, so a single `n` per strip is correct); empty strips render `n = 0` and skip the mean tick.
+
+This figure is a sibling of Figure 32: Figure 32 covers `A == B == 0` (`frac_b_cluster` undefined), and Figure 33 covers the adjacent subset where the training cluster exists but is fully one-sided (`frac_b_cluster ∈ {0, 1}`). On Figure 34 these rows pile up at the `x ∈ {0, 1}` endpoints; the strip plot exposes their per-model spread instead.
+
+**Data included:** rows where `(n_assigned_to_A > 0 AND n_assigned_to_B == 0)` OR `(n_assigned_to_A == 0 AND n_assigned_to_B > 0)`, for the four main models, at Baseline and Optimal guidance.
+
 ---
 
 ## Summary: What Is Universally Excluded
@@ -387,6 +447,8 @@ The following data **never appears in any plot**:
 | 21–26, 28 Aggregated Spirals | N/A | n < 3 groups dropped | One model each |
 | RSCC Scatter (per model) | Yes | None | One model each |
 | RSCC Scatter Aggregated | Yes | n < 3 main models dropped | Main only |
+| Min-RMSD Scatter Aggregated | Yes | n < 3 main models dropped; NaN RMSD pre-dropped | Main only |
+| Min-RMSD Scatter (per model) | Yes | NaN RMSD pre-dropped | One model each (data exists for 6 of 7) |
 | RSCC vs LDDT (per model) | Yes (LDDT side) | None | One model each |
 | Aggregated LDDT Scatter | Yes | n < 3 main models dropped | Main only |
 | By-Class Combined Grid | Yes (small-segment branch) | None | Main only |
@@ -394,6 +456,7 @@ The following data **never appears in any plot**:
 | 30 Calibration Overlay Low Cluster | N/A | n_cluster_evaluated > 5 dropped | Main only |
 | 31 Calibration Overlay Post Cutoff | N/A | cutoff_status != Post dropped | Main only |
 | 32 No-Cluster Strip | N/A | A+B > 0 rows dropped | Main only |
+| 33 One-sided Cluster Strip | N/A | A and B both > 0, or A+B == 0, rows dropped | Main only |
 | 34 Calibration Overlay | N/A | None | Main only |
 | 34L Calibration Overlay Legend | N/A (no data) | N/A | Main only |
 | 35 Calibration Small Multiples v2 | N/A | None | Main only |

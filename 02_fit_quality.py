@@ -20,6 +20,7 @@ def _():
         get_rscc_nan_proteins,
         load_classification,
         load_lddt,
+        load_min_altloc_rmsd,
         load_rscc,
         merge_classification_by_containment,
     )
@@ -27,6 +28,7 @@ def _():
     from plot_distributions import make_combined_baseline_distributions
     from plot_scatter import (
         make_aggregated_scatter,
+        make_min_rmsd_scatter,
         make_rscc_scatter,
         make_scatter_comparison,
     )
@@ -54,11 +56,13 @@ def _():
         get_rscc_nan_proteins,
         load_classification,
         load_lddt,
+        load_min_altloc_rmsd,
         load_rscc,
         merge_classification_by_containment,
         make_aggregated_scatter,
         make_by_class_combined_grid,
         make_combined_baseline_distributions,
+        make_min_rmsd_scatter,
         make_rscc_scatter,
         make_scatter_comparison,
         model_slug,
@@ -91,6 +95,8 @@ def _(mo):
     | -- | RSCC scatter per model | `rscc_scatterplots/rscc_scatter_{model}.svg` |
     | -- | RSCC vs LDDT scatter per model | `cross_metric_scatterplots/rscc_vs_lddt_{model}.svg` |
     | -- | Aggregated RSCC scatter | `rscc_scatterplots/rscc_scatter_aggregated_all_models.svg` |
+    | -- | Aggregated min-RMSD scatter (A vs B) | `rmsd_scatterplots/min_rmsd_scatter_aggregated_all_models.svg` |
+    | -- | Per-model min-RMSD scatter (A vs B) | `rmsd_scatterplots/min_rmsd_scatter_{model}.svg` |
     | -- | RSCC by classification (combined 4×4 grid) | `rscc_scatterplots/rscc_by_class_combined.svg` |
     | -- | Aggregated LDDT scatter | `rscc_scatterplots/silhouette_scatter_aggregated_all_models.svg` |
     """)
@@ -172,6 +178,71 @@ def _(load_classification, nan_rscc_proteins):
     if nan_rscc_proteins:
         classification_df = classification_df[~classification_df["protein"].isin(nan_rscc_proteins)]
     return (classification_df,)
+
+
+@app.cell
+def _(load_min_altloc_rmsd, nan_rscc_proteins, pd):
+    # Concatenate the four per-source min-RMSD CSVs into one tidy frame.
+    # protenix-mini / protenix-tiny CSVs both store ``model == "protenix"``
+    # so we override model_name at load time to disambiguate.
+    _pieces = [
+        load_min_altloc_rmsd("min_altloc_rmsd_results_boltz_protenix.csv"),
+        load_min_altloc_rmsd(
+            "min_altloc_rmsd_results_protenix_mini.csv",
+            model_name_override="protenix-mini",
+        ),
+        load_min_altloc_rmsd(
+            "min_altloc_rmsd_results_protenix_tiny.csv",
+            model_name_override="protenix-tiny",
+        ),
+        load_min_altloc_rmsd("min_altloc_rmsd_results_rf3_fixed.csv"),
+    ]
+    min_rmsd_all = pd.concat(_pieces, ignore_index=True)
+    if nan_rscc_proteins:
+        min_rmsd_all = min_rmsd_all[~min_rmsd_all["protein"].isin(nan_rscc_proteins)]
+    return (min_rmsd_all,)
+
+
+@app.cell
+def _(OPTIMAL_GW, format_residue_range, min_rmsd_all, pd):
+    # Per-(protein, selection, model) min RMSD at each model's optimal gw.
+    _gw_df = pd.DataFrame(list(OPTIMAL_GW.items()), columns=["model_name", "optimal_gw"])
+    _region = min_rmsd_all[min_rmsd_all["selection_name"] != "all altloc"]
+
+    # Audit: which (protein, selection) pairs exist for each model in any gw
+    # but lack a row at that model's optimal gw?
+    _all_keys_per_model = {
+        m: set(zip(g["protein"], g["selection"]))
+        for m, g in _region.groupby("model_name")
+    }
+
+    min_rmsd_per_model_df = (
+        _region.merge(_gw_df, on="model_name")
+        .query("guidance_weight == optimal_gw")
+        [["protein", "selection", "model_name", "guidance_weight",
+          "min_rmsd_to_A", "min_rmsd_to_B"]]
+        .reset_index(drop=True)
+    )
+    min_rmsd_per_model_df["label"] = min_rmsd_per_model_df.apply(
+        lambda r: f"{str(r['protein']).upper()} {format_residue_range(r['selection'])}",
+        axis=1,
+    )
+
+    _kept_keys_per_model = {
+        m: set(zip(g["protein"], g["selection"]))
+        for m, g in min_rmsd_per_model_df.groupby("model_name")
+    }
+    for _m in sorted(_all_keys_per_model):
+        _all = _all_keys_per_model[_m]
+        _kept = _kept_keys_per_model.get(_m, set())
+        _dropped = len(_all) - len(_all & _kept)
+        if _dropped > 0:
+            print(
+                f"\u2139\ufe0f  min-RMSD per-model join: {_m} dropped {_dropped} of "
+                f"{len(_all)} (protein, selection) pair(s) lacking a row at "
+                f"optimal gw = {OPTIMAL_GW.get(_m)}."
+            )
+    return (min_rmsd_per_model_df,)
 
 
 @app.cell
@@ -396,6 +467,93 @@ def _(auto_save, make_aggregated_scatter, mo, rscc_scatter_df, save_fig):
         Each point is one (protein, selection); baseline and guided RSCC collapsed across main models using the median (per-model spread shown in the per-model figures above).
         `figures/rscc_scatterplots/rscc_scatter_aggregated_all_models.svg`"""),
         _fig,
+    ])
+    return
+
+
+@app.cell
+def _(
+    auto_save,
+    make_min_rmsd_scatter,
+    min_rmsd_per_model_df,
+    mo,
+    save_fig,
+):
+    _min_rmsd_agg_df = (
+        min_rmsd_per_model_df.query("model_name not in @MODELS_ALT")
+        .groupby(["protein", "selection", "label"], as_index=False)
+        .agg(
+            min_rmsd_to_A=("min_rmsd_to_A", "median"),
+            min_rmsd_to_B=("min_rmsd_to_B", "median"),
+            n=("model_name", "count"),
+        )
+    )
+    _min_rmsd_agg_df = _min_rmsd_agg_df[_min_rmsd_agg_df["n"] >= 3]
+
+    _fig_min_rmsd_agg = make_min_rmsd_scatter(
+        _min_rmsd_agg_df,
+        title="Minimum RMSD to Each Altloc",
+    )
+    if auto_save.value:
+        save_fig(
+            _fig_min_rmsd_agg,
+            "rmsd_scatterplots/min_rmsd_scatter_aggregated_all_models.svg",
+        )
+    mo.vstack([
+        mo.md("""## Aggregated Min-RMSD Scatter -- Min RMSD to Altloc A vs B
+        Each point is one (protein, selection); X / Y are the median across main models of the minimum RMSD across the 8-member ensemble at each model's optimal guidance weight. Pinned highlights ring `6B8X 181-183` and `5MHX 162-164` in blue (matching the aggregated RSCC scatter).
+        `figures/rmsd_scatterplots/min_rmsd_scatter_aggregated_all_models.svg`"""),
+        _fig_min_rmsd_agg,
+    ])
+    return
+
+
+@app.cell
+def _(
+    MODEL_DISPLAY,
+    auto_save,
+    make_min_rmsd_scatter,
+    min_rmsd_per_model_df,
+    mo,
+    model_slug,
+    save_all_scatter,
+    save_fig,
+    save_per_model_figures,
+    scatter_model,
+):
+    def _make_for_model(_df, _m):
+        return make_min_rmsd_scatter(
+            _df,
+            title=f"Minimum RMSD to Each Altloc: {MODEL_DISPLAY.get(_m, _m)}",
+        )
+
+    if save_all_scatter.value:
+        save_per_model_figures(
+            min_rmsd_per_model_df, "model_name",
+            _make_for_model,
+            "rmsd_scatterplots/min_rmsd_scatter_{slug}.svg",
+        )
+
+    _cur = scatter_model.value
+    _cur_df = min_rmsd_per_model_df[min_rmsd_per_model_df["model_name"] == _cur]
+    if _cur_df.empty:
+        _content = mo.callout(
+            f"No min-RMSD data available for {MODEL_DISPLAY.get(_cur, _cur)}.",
+            kind="warn",
+        )
+    else:
+        _fig_min_rmsd_per = _make_for_model(_cur_df, _cur)
+        if auto_save.value:
+            save_fig(
+                _fig_min_rmsd_per,
+                f"rmsd_scatterplots/min_rmsd_scatter_{model_slug(_cur)}.svg",
+            )
+        _content = _fig_min_rmsd_per
+    mo.vstack([
+        mo.md("""## Per-Model Min-RMSD Scatter -- Min RMSD to Altloc A vs B
+        Per-model scatter at each model's optimal guidance weight (no baseline overlay). Models without a min-RMSD CSV (e.g. `rf3-chiral-off`) render a warning callout in place of the figure.
+        `figures/rmsd_scatterplots/min_rmsd_scatter_{model}.svg`"""),
+        _content,
     ])
     return
 
