@@ -246,7 +246,7 @@ def make_aggregated_spiral_figure(
                 xy=(x, y),
                 xytext=(5, 5),
                 textcoords="offset points",
-                fontsize=7,
+                fontsize=10,
                 fontweight="bold" if is_opt else "normal",
                 color="#222222",
                 bbox=dict(

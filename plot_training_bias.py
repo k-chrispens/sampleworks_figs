@@ -424,15 +424,17 @@ def make_training_bias_one_sided_strip(
     *,
     model_order: list[str] | None = None,
     figsize: tuple[float, float] = (6, 2.8),
-    marker_size: float = 2.0,
+    marker_size: float = 3.0,
+    jitter: float = 0.25,
 ) -> plt.Figure:
-    """1x4 paired-swarm strip for strictly one-sided training-cluster selections.
+    """1x4 paired-strip plot for strictly one-sided training-cluster selections.
 
     Subsets per row: ``n_A > 0 AND n_B == 0`` (only-A, x=0) or
     ``n_A == 0 AND n_B > 0`` (only-B, x=1). Equivalent to
     ``frac_b_cluster in {0, 1}``. Baseline (gray) and Optimal-guidance (model
-    color) are overlaid via two ``sns.swarmplot`` calls per panel, so points
-    are non-overlapping within a condition but alpha-blended across conditions.
+    color) are overlaid via two ``sns.stripplot`` calls per panel, with
+    horizontal jitter so points spread inside each strip and alpha-blend across
+    conditions.
     """
     if model_order is None:
         model_order = list(_TRAINING_BIAS_MAIN_MODELS)
@@ -475,11 +477,12 @@ def make_training_bias_one_sided_strip(
         ]:
             if panel_df.empty:
                 continue
-            sns.swarmplot(
+            sns.stripplot(
                 data=panel_df, x="altloc", y="b_occupancy",
                 order=altloc_order, ax=ax,
                 color=color, alpha=0.7,
                 size=marker_size, linewidth=0,
+                jitter=jitter,
             )
 
         for x_idx, altloc in enumerate(altloc_order):

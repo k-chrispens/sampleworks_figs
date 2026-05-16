@@ -242,7 +242,29 @@ def _(OPTIMAL_GW, format_residue_range, min_rmsd_all, pd):
                 f"{len(_all)} (protein, selection) pair(s) lacking a row at "
                 f"optimal gw = {OPTIMAL_GW.get(_m)}."
             )
-    return (min_rmsd_per_model_df,)
+
+    # Cross-figure highlight groups for the min-RMSD scatter family.
+    # Colors match the RSCC scatter convention in plot_scatter.py:
+    #   #F57C00 orange = far-from-ceiling family (2QCV 2-4, 4OLE 424-426),
+    #   #1565C0 blue   = manually-curated biological highlight (5SOP 131-133),
+    #   #D32F2F red    = decreased-RSCC family (curated 7Z0E altloc segments
+    #                    flagged in the RSCC scatter; intentionally not the
+    #                    full 7Z0E set to keep the panel readable).
+    MIN_RMSD_EXTRA_HIGHLIGHTS = {
+        "#F57C00": ["2QCV 2-4", "4OLE 424-426"],
+        "#1565C0": ["5SOP 131-133"],
+        "#D32F2F": [
+            "7Z0E 11-13",
+            "7Z0E 18-20",
+            "7Z0E 54-56",
+            "7Z0E 82-84",
+            "7Z0E 122-124",
+            "7Z0E 181-183",
+            "7Z0E 206-208",
+            "7Z0E 214-216",
+        ],
+    }
+    return MIN_RMSD_EXTRA_HIGHLIGHTS, min_rmsd_per_model_df
 
 
 @app.cell
@@ -473,6 +495,7 @@ def _(auto_save, make_aggregated_scatter, mo, rscc_scatter_df, save_fig):
 
 @app.cell
 def _(
+    MIN_RMSD_EXTRA_HIGHLIGHTS,
     auto_save,
     make_min_rmsd_scatter,
     min_rmsd_per_model_df,
@@ -493,6 +516,7 @@ def _(
     _fig_min_rmsd_agg = make_min_rmsd_scatter(
         _min_rmsd_agg_df,
         title="Minimum RMSD to Each Altloc",
+        extra_highlight_groups=MIN_RMSD_EXTRA_HIGHLIGHTS,
     )
     if auto_save.value:
         save_fig(
@@ -501,7 +525,7 @@ def _(
         )
     mo.vstack([
         mo.md("""## Aggregated Min-RMSD Scatter -- Min RMSD to Altloc A vs B
-        Each point is one (protein, selection); X / Y are the median across main models of the minimum RMSD across the 8-member ensemble at each model's optimal guidance weight. Pinned highlights ring `6B8X 181-183` and `5MHX 162-164` in blue (matching the aggregated RSCC scatter).
+        Each point is one (protein, selection); X / Y are the median across main models of the minimum RMSD across the 8-member ensemble at each model's optimal guidance weight. Pinned highlights ring `6B8X 181-183` and `5MHX 162-164` in blue (matching the aggregated RSCC scatter). Extra RSCC-matched highlight rings (per-model RSCC scatter colors): orange (`#F57C00`) `2QCV 2-4` and `4OLE 424-426`, blue (`#1565C0`) `5SOP 131-133`, red (`#D32F2F`) a curated `7Z0E` subset (`11-13`, `18-20`, `54-56`, `82-84`, `122-124`, `181-183`, `206-208`, `214-216`).
         `figures/rmsd_scatterplots/min_rmsd_scatter_aggregated_all_models.svg`"""),
         _fig_min_rmsd_agg,
     ])
@@ -510,6 +534,7 @@ def _(
 
 @app.cell
 def _(
+    MIN_RMSD_EXTRA_HIGHLIGHTS,
     MODEL_DISPLAY,
     auto_save,
     make_min_rmsd_scatter,
@@ -525,6 +550,7 @@ def _(
         return make_min_rmsd_scatter(
             _df,
             title=f"Minimum RMSD to Each Altloc: {MODEL_DISPLAY.get(_m, _m)}",
+            extra_highlight_groups=MIN_RMSD_EXTRA_HIGHLIGHTS,
         )
 
     if save_all_scatter.value:

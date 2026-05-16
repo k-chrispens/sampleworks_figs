@@ -175,7 +175,11 @@ Several figures are rendered in three variants via a UI dropdown. The model grou
 
 **Highlights:**
 - Pinned (blue, `#1565C0`): `6B8X 181-183` and `5MHX 162-164` (the same selections circled in the aggregated RSCC scatter, for direct cross-reference).
-- Optional `extra_highlight_groups: dict[str, list[str]]` knob — caller passes `{color: [labels]}` to ring extra selections. Highlights are restricted to rows visible inside each panel before label placement so `adjust_text` doesn't fight off-axes points.
+- RSCC-matched extra highlights (defined as `MIN_RMSD_EXTRA_HIGHLIGHTS` in the notebook, passed via `extra_highlight_groups` to both the aggregated and per-model figures). Colors mirror the per-model RSCC scatter (`make_rscc_scatter`):
+  - Orange `#F57C00` (RSCC "far-from-ceiling" family): `2QCV 2-4`, `4OLE 424-426`.
+  - Blue `#1565C0` (RSCC manually-curated biological highlight): `5SOP 131-133`.
+  - Red `#D32F2F` (RSCC "decreased" family): a curated subset of `7Z0E` altloc segments — `11-13`, `18-20`, `54-56`, `82-84`, `122-124`, `181-183`, `206-208`, `214-216`. Intentionally a subset (not all 37 7Z0E selections) to keep the panel readable; segments listed here are the ones flagged in the RSCC scatter.
+- Optional `extra_highlight_groups: dict[str, list[str]]` knob — caller passes `{color: [labels]}` to ring extra selections (this is the mechanism `MIN_RMSD_EXTRA_HIGHLIGHTS` is plumbed through). Highlights are restricted to rows visible inside each panel before label placement so `adjust_text` doesn't fight off-axes points.
 
 **Source data:**
 - `min_altloc_rmsd_results_boltz_protenix.csv` — Boltz2-XRD, Boltz2-MD, Protenix.
@@ -204,7 +208,7 @@ Each loader applies the standard 50/50 occupancy filter (`altloc_occupancies == 
 
 **Output:** `figures/rmsd_scatterplots/min_rmsd_scatter_{model_slug}.svg` per model that has a min-RMSD CSV.
 
-**What is plotted:** Same two-panel layout as the aggregated figure but for one model at a time, drawn from `min_rmsd_per_model_df` filtered to the dropdown-selected model. Title is `"Minimum RMSD to Each Altloc: {ModelDisplay}"`. No baseline overlay; X / Y are the model's raw `min_rmsd_to_A` / `min_rmsd_to_B` at its optimal guidance weight. Same default + `extra_highlight_groups` highlight knobs as the aggregated figure.
+**What is plotted:** Same two-panel layout as the aggregated figure but for one model at a time, drawn from `min_rmsd_per_model_df` filtered to the dropdown-selected model. Title is `"Minimum RMSD to Each Altloc: {ModelDisplay}"`. No baseline overlay; X / Y are the model's raw `min_rmsd_to_A` / `min_rmsd_to_B` at its optimal guidance weight. Same default highlight knobs and the same `MIN_RMSD_EXTRA_HIGHLIGHTS` overlay as the aggregated figure (orange `2QCV 2-4` / `4OLE 424-426`, blue `5SOP 131-133`, red curated `7Z0E` subset) — selections absent from a particular model's frame simply don't get circled in that panel.
 
 **Models with data:** `boltz2X-RAY`, `boltz2MD`, `protenix`, `protenix-mini`, `protenix-tiny`, `rf3` (the alternative models `protenix-mini` and `protenix-tiny` *do* appear here; only the aggregated figure drops them).
 
@@ -420,7 +424,7 @@ This figure exists because its rows have `frac_b_cluster = N_B / (N_A + N_B)` un
 
 **Output:** `figures/33_training_bias_one_sided_strip.svg`.
 
-**What is plotted:** 1×4 row of panels (one per main model, model name as panel title). Each panel holds two side-by-side beeswarm strips: left = "only-A" (`n_assigned_to_A > 0 AND n_assigned_to_B == 0`, `frac_b_cluster == 0`), right = "only-B" (`n_assigned_to_A == 0 AND n_assigned_to_B > 0`, `frac_b_cluster == 1`). X-tick labels are `A` and `B`; the X axis carries no quantitative meaning beyond the altloc label. Beeswarm packing uses `sns.swarmplot` with two overlaid calls per panel — Baseline (`#888888`, alpha 0.7) drawn first, Optimal-guidance (`MODEL_PALETTE[model]`, alpha 0.7) drawn on top — so points are non-overlapping within a condition but alpha-blended across conditions. Each strip carries two horizontal mean ticks (gray for Baseline, model color for Optimal) at the strip's x-center, half-width ±0.25. A `y = 0.5` reference line is drawn behind the data. Per-strip `n = …` annotated just above the swarm (Baseline and Optimal share row counts via the join, so a single `n` per strip is correct); empty strips render `n = 0` and skip the mean tick.
+**What is plotted:** 1×4 row of panels (one per main model, model name as panel title). Each panel holds two side-by-side jittered strips: left = "only-A" (`n_assigned_to_A > 0 AND n_assigned_to_B == 0`, `frac_b_cluster == 0`), right = "only-B" (`n_assigned_to_A == 0 AND n_assigned_to_B > 0`, `frac_b_cluster == 1`). X-tick labels are `A` and `B`; the X axis carries no quantitative meaning beyond the altloc label. Point placement uses `sns.stripplot` with `jitter=0.25` and two overlaid calls per panel — Baseline (`#888888`, alpha 0.7) drawn first, Optimal-guidance (`MODEL_PALETTE[model]`, alpha 0.7) drawn on top — so points alpha-blend across conditions. Each strip carries two horizontal mean ticks (gray for Baseline, model color for Optimal) at the strip's x-center, half-width ±0.25. A `y = 0.5` reference line is drawn behind the data. Per-strip `n = …` annotated just above the strip (Baseline and Optimal share row counts via the join, so a single `n` per strip is correct); empty strips render `n = 0` and skip the mean tick.
 
 This figure is a sibling of Figure 32: Figure 32 covers `A == B == 0` (`frac_b_cluster` undefined), and Figure 33 covers the adjacent subset where the training cluster exists but is fully one-sided (`frac_b_cluster ∈ {0, 1}`). On Figure 34 these rows pile up at the `x ∈ {0, 1}` endpoints; the strip plot exposes their per-model spread instead.
 
