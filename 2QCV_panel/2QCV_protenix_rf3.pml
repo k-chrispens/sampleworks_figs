@@ -1,9 +1,6 @@
 # 2QCV: density input + protenix + RF3 predictions
 # Render protenix and rf3 separately by toggling show/hide before each ray.
 
-# Custom color for rf3 (matches MODEL_PALETTE in style.py)
-set_color rf3_gold, [1.0, 0.843, 0.0]
-
 # Density input (reference)
 load ./2QCV_single_001_density_input.cif, density_input
 color gray70, density_input
@@ -26,25 +23,25 @@ show cartoon, protenix_gw_0_1
 # RF3 predictions
 load ./rf3_2QCV_0.0.cif, rf3_baseline
 align rf3_baseline, density_input
-color rf3_gold, rf3_baseline
+color good_navaho, rf3_baseline
 util.cnc rf3_baseline
 show cartoon, rf3_baseline
 
 load ./rf3_2QCV_0.005.cif, rf3_gw_0_005
 align rf3_gw_0_005, density_input
-color rf3_gold, rf3_gw_0_005
+color good_navaho, rf3_gw_0_005
 util.cnc rf3_gw_0_005
 show cartoon, rf3_gw_0_005
 
 load ./rf3_2QCV_0.01.cif, rf3_gw_0_01
 align rf3_gw_0_01, density_input
-color rf3_gold, rf3_gw_0_01
+color good_navaho, rf3_gw_0_01
 util.cnc rf3_gw_0_01
 show cartoon, rf3_gw_0_01
 
 load ./rf3_2QCV_0.02.cif, rf3_gw_0_02
 align rf3_gw_0_02, density_input
-color rf3_gold, rf3_gw_0_02
+color good_navaho, rf3_gw_0_02
 util.cnc rf3_gw_0_02
 show cartoon, rf3_gw_0_02
 
@@ -77,24 +74,31 @@ set_view (\
 # ---------------------------------------------------------------
 # RAY TRACE
 # Toggle visibility per-render, e.g.:
-hide everything
-show cartoon, protenix_baseline or density_input
+disable all
+enable density_input
+enable protenix
+enable protenix_baseline
 ray 2400, 1800
 png protenix_2QCV_baseline.png, dpi=300
 
-hide everything, protenix_baseline
-show cartoon, protenix_gw_0_1
+disable protenix_baseline
+enable protenix_gw_0_1
 ray 2400, 1800
 png protenix_2QCV_guided.png, dpi=300
 
-hide everything, protenix
-show cartoon, rf3_baseline 
+disable protenix
+enable rf3
+enable rf3_baseline
 ray 2400, 1800
 png rf3_2QCV_baseline.png, dpi=300
 
-hide everything, rf3_baseline
-show cartoon, rf3_gw_0_02
+disable rf3_baseline
+enable rf3_gw_0_02
 ray 2400, 1800
 png rf3_2QCV_guided0_02.png, dpi=300
-# ---------------------------------------------------------------
 
+disable rf3_gw_0_02
+enable rf3_gw_0_01
+ray 2400, 1800
+png rf3_2QCV_guided0_01.png, dpi=300
+# ---------------------------------------------------------------

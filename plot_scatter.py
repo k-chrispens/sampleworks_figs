@@ -381,6 +381,29 @@ def make_rscc_scatter(
     )
 
 
+_MIN_RMSD_PANEL_KEYS = frozenset({"autofit", "zoom"})
+
+
+def _resolve_panel_extras(
+    groups: dict | None,
+    panel: str,
+) -> dict[str, list[str]] | None:
+    """Resolve panel-specific extras from a flat-or-nested *groups* dict.
+
+    Detects the nested form (``{"autofit": {...}, "zoom": {...}}``) by
+    checking that *groups* is non-empty and every key is a member of
+    ``{"autofit", "zoom"}``. Anything else is treated as the flat form
+    (``{color: [labels]}``) and returned as-is for both panels. In the
+    nested form, a missing panel key yields ``None`` (no extras on that
+    panel); pinned highlights are handled separately and are unaffected.
+    """
+    if groups is None:
+        return None
+    if groups and set(groups.keys()).issubset(_MIN_RMSD_PANEL_KEYS):
+        return groups.get(panel)
+    return groups
+
+
 def make_min_rmsd_scatter(
     df: pd.DataFrame,
     *,
@@ -390,7 +413,7 @@ def make_min_rmsd_scatter(
     title: str,
     pinned_highlights: tuple[str, ...] = ("6B8X 181-183", "5MHX 162-164"),
     pinned_highlight_color: str = "#1565C0",
-    extra_highlight_groups: dict[str, list[str]] | None = None,
+    extra_highlight_groups: dict[str, list[str]] | dict[str, dict[str, list[str]]] | None = None,
     zoom_xylim: tuple[float, float] = (0.0, 3.0),
 ) -> plt.Figure:
     """Two-panel scatter of min RMSD to altloc A vs altloc B.
@@ -414,14 +437,24 @@ def make_min_rmsd_scatter(
         Figure suptitle (e.g. ``"Minimum RMSD to Each Altloc"``).
     pinned_highlights : tuple[str, ...]
         Default highlight labels (case-insensitive match against
-        *label_col*) drawn in *pinned_highlight_color*.
+        *label_col*) drawn in *pinned_highlight_color*. Pinned highlights
+        are not per-panel — they appear on both the auto-fit and zoom
+        panels.
     pinned_highlight_color : str
         Color for pinned highlights.
-    extra_highlight_groups : dict[str, list[str]] | None
-        Mapping ``{color: [labels]}`` for additional highlight groups.
+    extra_highlight_groups : dict | None
+        Either the flat form ``{color: [labels]}`` (same extras on both
+        panels) or the nested per-panel form
+        ``{"autofit": {color: [labels]}, "zoom": {color: [labels]}}``.
+        Nested form is detected by an explicit key-set check: every key
+        of the outer dict must be a member of ``{"autofit", "zoom"}``;
+        anything else is treated as flat. An omitted panel key in the
+        nested form means "no extras on that panel" (pinned highlights
+        still render on both panels).
     zoom_xylim : tuple[float, float]
         Lower / upper limit for the right (zoom) panel, applied to both x
-        and y axes.
+        and y axes. The value no longer appears in the panel title — the
+        right panel is always titled ``"Zoomed"``.
 
     Returns
     -------
@@ -430,10 +463,10 @@ def make_min_rmsd_scatter(
     """
     fig, axes = plt.subplots(1, 2, figsize=(12, 6))
     panels = [
-        (axes[0], "Auto-fit", None),
-        (axes[1], f"Zoom ({zoom_xylim[0]:g}, {zoom_xylim[1]:g}) \u00c5", zoom_xylim),
+        (axes[0], "Auto-fit", None, "autofit"),
+        (axes[1], "Zoomed", zoom_xylim, "zoom"),
     ]
-    for ax, panel_title, lim in panels:
+    for ax, panel_title, lim, panel_key in panels:
         _draw_min_rmsd_panel(
             ax,
             df,
@@ -444,7 +477,7 @@ def make_min_rmsd_scatter(
             lim=lim,
             pinned_highlights=pinned_highlights,
             pinned_highlight_color=pinned_highlight_color,
-            extra_highlight_groups=extra_highlight_groups,
+            extra_highlight_groups=_resolve_panel_extras(extra_highlight_groups, panel_key),
         )
     fig.suptitle(title, y=1.02)
     fig.tight_layout()

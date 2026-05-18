@@ -243,26 +243,37 @@ def _(OPTIMAL_GW, format_residue_range, min_rmsd_all, pd):
                 f"optimal gw = {OPTIMAL_GW.get(_m)}."
             )
 
-    # Cross-figure highlight groups for the min-RMSD scatter family.
-    # Colors match the RSCC scatter convention in plot_scatter.py:
+    # Cross-figure highlight groups for the min-RMSD scatter family,
+    # nested per panel. Colors match the RSCC scatter convention in
+    # plot_scatter.py:
     #   #F57C00 orange = far-from-ceiling family (2QCV 2-4, 4OLE 424-426),
     #   #1565C0 blue   = manually-curated biological highlight (5SOP 131-133),
     #   #D32F2F red    = decreased-RSCC family (curated 7Z0E altloc segments
     #                    flagged in the RSCC scatter; intentionally not the
     #                    full 7Z0E set to keep the panel readable).
+    # The orange + blue groups are duplicated verbatim under both "autofit"
+    # and "zoom" (no magic "both" key — explicit duplication keeps the
+    # mapping readable). The red 7Z0E set is intentionally zoom-only to
+    # keep the global auto-fit panel readable.
     MIN_RMSD_EXTRA_HIGHLIGHTS = {
-        "#F57C00": ["2QCV 2-4", "4OLE 424-426"],
-        "#1565C0": ["5SOP 131-133"],
-        "#D32F2F": [
-            "7Z0E 11-13",
-            "7Z0E 18-20",
-            "7Z0E 54-56",
-            "7Z0E 82-84",
-            "7Z0E 122-124",
-            "7Z0E 181-183",
-            "7Z0E 206-208",
-            "7Z0E 214-216",
-        ],
+        "autofit": {
+            "#F57C00": ["2QCV 2-4", "4OLE 424-426"],
+            "#1565C0": ["5SOP 131-133"],
+        },
+        "zoom": {
+            "#F57C00": ["2QCV 2-4", "4OLE 424-426"],
+            "#1565C0": ["5SOP 131-133"],
+            "#D32F2F": [
+                "7Z0E 11-13",
+                "7Z0E 18-20",
+                "7Z0E 54-56",
+                "7Z0E 82-84",
+                "7Z0E 122-124",
+                "7Z0E 181-183",
+                "7Z0E 206-208",
+                "7Z0E 214-216",
+            ],
+        },
     }
     return MIN_RMSD_EXTRA_HIGHLIGHTS, min_rmsd_per_model_df
 
@@ -525,7 +536,7 @@ def _(
         )
     mo.vstack([
         mo.md("""## Aggregated Min-RMSD Scatter -- Min RMSD to Altloc A vs B
-        Each point is one (protein, selection); X / Y are the median across main models of the minimum RMSD across the 8-member ensemble at each model's optimal guidance weight. Pinned highlights ring `6B8X 181-183` and `5MHX 162-164` in blue (matching the aggregated RSCC scatter). Extra RSCC-matched highlight rings (per-model RSCC scatter colors): orange (`#F57C00`) `2QCV 2-4` and `4OLE 424-426`, blue (`#1565C0`) `5SOP 131-133`, red (`#D32F2F`) a curated `7Z0E` subset (`11-13`, `18-20`, `54-56`, `82-84`, `122-124`, `181-183`, `206-208`, `214-216`).
+        Each point is one (protein, selection); X / Y are the median across main models of the minimum RMSD across the 8-member ensemble at each model's optimal guidance weight. Pinned blue rings on `6B8X 181-183` and `5MHX 162-164` appear on both panels (matching the aggregated RSCC scatter). Extra RSCC-matched highlight rings split per panel: orange (`#F57C00`) `2QCV 2-4` and `4OLE 424-426` and blue (`#1565C0`) `5SOP 131-133` appear on **both** the auto-fit and zoom panels; the red (`#D32F2F`) curated `7Z0E` subset (`11-13`, `18-20`, `54-56`, `82-84`, `122-124`, `181-183`, `206-208`, `214-216`) appears on the **zoom panel only**, keeping the global auto-fit panel readable.
         `figures/rmsd_scatterplots/min_rmsd_scatter_aggregated_all_models.svg`"""),
         _fig_min_rmsd_agg,
     ])
@@ -577,7 +588,7 @@ def _(
         _content = _fig_min_rmsd_per
     mo.vstack([
         mo.md("""## Per-Model Min-RMSD Scatter -- Min RMSD to Altloc A vs B
-        Per-model scatter at each model's optimal guidance weight (no baseline overlay). Models without a min-RMSD CSV (e.g. `rf3-chiral-off`) render a warning callout in place of the figure.
+        Per-model scatter at each model's optimal guidance weight (no baseline overlay). Same per-panel highlight split as the aggregated figure: pinned blues plus the orange + blue extra groups appear on both panels, while the red curated `7Z0E` subset appears on the zoom panel only. Models without a min-RMSD CSV (e.g. `rf3-chiral-off`) render a warning callout in place of the figure.
         `figures/rmsd_scatterplots/min_rmsd_scatter_{model}.svg`"""),
         _content,
     ])

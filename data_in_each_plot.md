@@ -171,15 +171,15 @@ Several figures are rendered in three variants via a UI dropdown. The model grou
 **What is plotted:** Two side-by-side panels in one SVG. Each point is one **(protein, selection)** pair; X = median across main models of `min_rmsd_to_A` (the per-protein/selection minimum RMSD across the 8-member ensemble to altloc A), Y = same for altloc B. Both panels share a dashed gray `y = x` diagonal across the visible range, italic gray corner cues (`"closer to A"` upper-left, `"closer to B"` lower-right), equal aspect, and the same point cloud / highlights:
 
 - **Left panel (Auto-fit):** axes auto-scaled to the data range (with a 5% padding) so global outliers stay visible.
-- **Right panel (Zoom (0, 3) Å):** axes pinned to `[0, 3]` Å × `[0, 3]` Å so the dense low-RMSD cluster is readable. Off-scale points clip naturally — no special marker.
+- **Right panel (Zoomed):** axes pinned to `[0, 3]` Å × `[0, 3]` Å so the dense low-RMSD cluster is readable (range still controlled by `zoom_xylim`, just no longer printed in the title). Off-scale points clip naturally — no special marker.
 
-**Highlights:**
-- Pinned (blue, `#1565C0`): `6B8X 181-183` and `5MHX 162-164` (the same selections circled in the aggregated RSCC scatter, for direct cross-reference).
+**Highlights (split per panel):**
+- Pinned (blue, `#1565C0`): `6B8X 181-183` and `5MHX 162-164` on **both** panels (the same selections circled in the aggregated RSCC scatter, for direct cross-reference). Pinned highlights are not per-panel.
 - RSCC-matched extra highlights (defined as `MIN_RMSD_EXTRA_HIGHLIGHTS` in the notebook, passed via `extra_highlight_groups` to both the aggregated and per-model figures). Colors mirror the per-model RSCC scatter (`make_rscc_scatter`):
-  - Orange `#F57C00` (RSCC "far-from-ceiling" family): `2QCV 2-4`, `4OLE 424-426`.
-  - Blue `#1565C0` (RSCC manually-curated biological highlight): `5SOP 131-133`.
-  - Red `#D32F2F` (RSCC "decreased" family): a curated subset of `7Z0E` altloc segments — `11-13`, `18-20`, `54-56`, `82-84`, `122-124`, `181-183`, `206-208`, `214-216`. Intentionally a subset (not all 37 7Z0E selections) to keep the panel readable; segments listed here are the ones flagged in the RSCC scatter.
-- Optional `extra_highlight_groups: dict[str, list[str]]` knob — caller passes `{color: [labels]}` to ring extra selections (this is the mechanism `MIN_RMSD_EXTRA_HIGHLIGHTS` is plumbed through). Highlights are restricted to rows visible inside each panel before label placement so `adjust_text` doesn't fight off-axes points.
+  - Orange `#F57C00` (RSCC "far-from-ceiling" family): `2QCV 2-4`, `4OLE 424-426` — **both panels**.
+  - Blue `#1565C0` (RSCC manually-curated biological highlight): `5SOP 131-133` — **both panels**.
+  - Red `#D32F2F` (RSCC "decreased" family): a curated subset of `7Z0E` altloc segments — `11-13`, `18-20`, `54-56`, `82-84`, `122-124`, `181-183`, `206-208`, `214-216` — **zoom panel only**, intentionally kept off the auto-fit panel where the dense cluster crowds the global view. Intentionally a subset (not all 37 7Z0E selections) to keep the zoom panel readable; segments listed here are the ones flagged in the RSCC scatter.
+- Optional `extra_highlight_groups` knob accepts either the flat form `dict[str, list[str]]` (same extras on both panels, backward-compatible) or the nested per-panel form `{"autofit": {color: [labels]}, "zoom": {color: [labels]}}`. Nested form is detected by an explicit key-set check (outer keys must be a subset of `{"autofit", "zoom"}`); a missing panel key means no extras on that panel (pinned highlights still render on both). Highlights are restricted to rows visible inside each panel before label placement so `adjust_text` doesn't fight off-axes points.
 
 **Source data:**
 - `min_altloc_rmsd_results_boltz_protenix.csv` — Boltz2-XRD, Boltz2-MD, Protenix.
@@ -208,7 +208,7 @@ Each loader applies the standard 50/50 occupancy filter (`altloc_occupancies == 
 
 **Output:** `figures/rmsd_scatterplots/min_rmsd_scatter_{model_slug}.svg` per model that has a min-RMSD CSV.
 
-**What is plotted:** Same two-panel layout as the aggregated figure but for one model at a time, drawn from `min_rmsd_per_model_df` filtered to the dropdown-selected model. Title is `"Minimum RMSD to Each Altloc: {ModelDisplay}"`. No baseline overlay; X / Y are the model's raw `min_rmsd_to_A` / `min_rmsd_to_B` at its optimal guidance weight. Same default highlight knobs and the same `MIN_RMSD_EXTRA_HIGHLIGHTS` overlay as the aggregated figure (orange `2QCV 2-4` / `4OLE 424-426`, blue `5SOP 131-133`, red curated `7Z0E` subset) — selections absent from a particular model's frame simply don't get circled in that panel.
+**What is plotted:** Same two-panel layout as the aggregated figure but for one model at a time, drawn from `min_rmsd_per_model_df` filtered to the dropdown-selected model. Title is `"Minimum RMSD to Each Altloc: {ModelDisplay}"`. No baseline overlay; X / Y are the model's raw `min_rmsd_to_A` / `min_rmsd_to_B` at its optimal guidance weight. Same default highlight knobs and the same `MIN_RMSD_EXTRA_HIGHLIGHTS` overlay as the aggregated figure, including the same per-panel split: pinned blues plus the orange `2QCV 2-4` / `4OLE 424-426` and blue `5SOP 131-133` groups appear on both panels, while the red curated `7Z0E` subset appears on the zoom panel only — selections absent from a particular model's frame simply don't get circled in that panel.
 
 **Models with data:** `boltz2X-RAY`, `boltz2MD`, `protenix`, `protenix-mini`, `protenix-tiny`, `rf3` (the alternative models `protenix-mini` and `protenix-tiny` *do* appear here; only the aggregated figure drops them).
 
