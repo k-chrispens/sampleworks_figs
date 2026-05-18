@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Min-RMSD scatter: per-panel highlights & "Zoomed" title</title>
+  <style>
+    :root {
+      --fg: #1a1a1a;
+      --muted: #555;
+      --bg: #fafafa;
+      --panel: #ffffff;
+      --border: #d8d8d8;
+      --accent: #1565C0;
+      --code-bg: #f0f0f0;
+      --warn-bg: #fff8e1;
+      --warn-border: #f5a623;
+      --warn-fg: #5a4100;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --fg: #ececec;
+        --muted: #b0b0b0;
+        --bg: #161616;
+        --panel: #1e1e1e;
+        --border: #333;
+        --accent: #7ab3ee;
+        --code-bg: #262626;
+        --warn-bg: #2a230f;
+        --warn-border: #c79a32;
+        --warn-fg: #f1d99a;
+      }
+    }
+    html { color-scheme: light dark; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    main, header {
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 1.5rem 1.25rem;
+    }
+    header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1.25rem;
+    }
+    h1 {
+      margin: 0 0 0.5rem 0;
+      font-size: 1.6rem;
+      line-height: 1.25;
+    }
+    h2 {
+      margin: 2rem 0 0.75rem 0;
+      font-size: 1.2rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.25rem;
+    }
+    h3 {
+      margin: 1.25rem 0 0.5rem 0;
+      font-size: 1.02rem;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    blockquote {
+      margin: 0.75rem 0;
+      padding: 0.6rem 0.9rem;
+      border-left: 3px solid var(--accent);
+      background: var(--panel);
+      color: var(--fg);
+      border-radius: 0 4px 4px 0;
+    }
+    ul { padding-left: 1.25rem; }
+    li { margin: 0.25rem 0; }
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.9em;
+    }
+    code {
+      background: var(--code-bg);
+      padding: 0.05em 0.35em;
+      border-radius: 3px;
+    }
+    pre {
+      background: var(--code-bg);
+      padding: 0.7rem 0.9rem;
+      border-radius: 5px;
+      overflow-x: auto;
+      line-height: 1.45;
+    }
+    pre code {
+      background: transparent;
+      padding: 0;
+    }
+    details { margin: 0.5rem 0; }
+    summary {
+      cursor: pointer;
+      color: var(--muted);
+      font-weight: 500;
+    }
+    time { color: var(--muted); font-size: 0.9em; }
+    section { margin-top: 1.5rem; }
+    .open-questions {
+      background: var(--warn-bg);
+      border: 1px solid var(--warn-border);
+      color: var(--warn-fg);
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      margin-top: 1.5rem;
+    }
+    .open-questions h2 {
+      border-bottom: none;
+      margin-top: 0;
+      color: var(--warn-fg);
+    }
+    nav.toc {
+      font-size: 0.9em;
+      color: var(--muted);
+      margin-top: 0.75rem;
+    }
+    nav.toc a {
+      color: var(--accent);
+      text-decoration: none;
+      margin-right: 0.9rem;
+    }
+    nav.toc a:hover { text-decoration: underline; }
+    .diagram {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 0.7rem 0.9rem;
+      margin: 0.6rem 0 1rem 0;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Min-RMSD scatter: per-panel highlights &amp; "Zoomed" title</h1>
+    <blockquote>
+      Can you help revise the <code>figures/rmsd_scatterplots/</code> such that the zoomed title doesn't say
+      <em>Zoom (0, 3) Å</em> and instead says just <em>Zoomed</em>? Additionally, I don't want to highlight
+      the 7ZOE examples in the auto fit plot on the right, so we should have a way to highlight specific
+      proteins in each part of the plot.
+    </blockquote>
+    <details>
+      <summary>Refined prompt clarifications</summary>
+      <ul>
+        <li>Rename the right panel from <code>"Zoom (0, 3) Å"</code> to <code>"Zoomed"</code> (hardcoded in
+          <code>make_min_rmsd_scatter</code> in <code>plot_scatter.py</code>); keep the <code>zoom_xylim</code>
+          parameter — it still controls the zoom range, just no longer reflected in the title.</li>
+        <li>Replace <code>extra_highlight_groups: dict[str, list[str]]</code> with a union type accepting either
+          the flat form (same highlights on both panels) or a nested per-panel shape
+          <code>{"autofit": {color: [labels]}, "zoom": {color: [labels]}}</code>.</li>
+        <li>Nested form is detected by an explicit marker check: dict keys must be exactly a subset of
+          <code>{"autofit", "zoom"}</code> to be treated as nested; anything else is treated as flat.</li>
+        <li>In the nested form, an omitted panel key means <em>"no extras on that panel"</em> — pinned blues still
+          show on both panels.</li>
+        <li>Keep <code>pinned_highlights</code> (<code>6B8X 181-183</code>, <code>5MHX 162-164</code>, blue) on both
+          panels — no per-panel control for pinned.</li>
+        <li>In <code>02_fit_quality.py</code>, restructure <code>MIN_RMSD_EXTRA_HIGHLIGHTS</code> to the nested form:
+          <code>7Z0E</code> red group under <code>"zoom"</code> only; orange (<code>2QCV 2-4</code>, <code>4OLE 424-426</code>)
+          and blue (<code>5SOP 131-133</code>) groups are <strong>duplicated explicitly</strong> under both
+          <code>"autofit"</code> and <code>"zoom"</code> keys.</li>
+        <li>Apply the per-panel split to both the aggregated cell and the per-model cell (both currently use the
+          same <code>MIN_RMSD_EXTRA_HIGHLIGHTS</code> dict).</li>
+        <li>Skip repo-wide caller sweep — the flat form remains backward compatible, no other callers known.</li>
+        <li>If a caller passes a malformed-looking nested dict (e.g. typo <code>{"Zoom": ...}</code>), trust the
+          caller — no extra validation, no normalization.</li>
+        <li>Update captions in the aggregated cell markdown (<code>02_fit_quality.py:531</code>), the per-model
+          cell markdown (<code>02_fit_quality.py:579</code>), and <code>data_in_each_plot.md</code>
+          (lines ~181 and ~211) to reflect the zoom-only 7Z0E placement.</li>
+      </ul>
+    </details>
+    <p><time datetime="2026-05-18T22:11:04Z">2026-05-18T22:11:04Z</time></p>
+    <nav class="toc">
+      <a href="#overview">Overview</a>
+      <a href="#expected-behavior">Expected behavior</a>
+      <a href="#changes">Changes</a>
+      <a href="#open-questions">Open questions</a>
+    </nav>
+  </header>
+
+  <main>
+    <section id="overview">
+      <h2>Overview</h2>
+      <ul>
+        <li><strong>Goal.</strong> Two small but coupled revisions to the min-RMSD scatter family in
+          <code>figures/rmsd_scatterplots/</code>: (1) rename the zoom panel's title to a plain
+          <code>"Zoomed"</code>, and (2) let callers highlight different protein selections on the auto-fit
+          vs zoom panels — driven by a desire to keep the dense <code>7Z0E</code> red cluster off the
+          auto-fit panel where it crowds the global view.</li>
+        <li><strong>Locus.</strong> One plotting helper (<code>make_min_rmsd_scatter</code> in
+          <code>plot_scatter.py</code>) and one notebook constant (<code>MIN_RMSD_EXTRA_HIGHLIGHTS</code> in
+          <code>02_fit_quality.py</code>), plus three captions to keep documentation in sync.</li>
+        <li><strong>API shape.</strong> <code>extra_highlight_groups</code> grows a union type: flat
+          <code>{color: [labels]}</code> (same on both panels, current behavior) <em>or</em> nested
+          <code>{"autofit": {color: [labels]}, "zoom": {color: [labels]}}</code> (per-panel). Detection uses an
+          explicit key-set check so a stray color name can't accidentally trigger nested mode.</li>
+        <li><strong>Pinned highlights stay shared.</strong> The cross-figure blue rings on
+          <code>6B8X 181-183</code> and <code>5MHX 162-164</code> remain on both panels — per
+          <code>CLAUDE.md</code>'s "read as the same family across figures" convention.</li>
+        <li><strong>Backward compatibility.</strong> The flat form keeps working unchanged, so any archived
+          notebook cells or external callers passing the old shape continue to render identically.</li>
+      </ul>
+    </section>
+
+    <section id="expected-behavior">
+      <h2>Expected behavior</h2>
+      <ul>
+        <li>The right panel of every min-RMSD scatter (aggregated + per-model) shows the title <code>"Zoomed"</code>
+          instead of <code>"Zoom (0, 3) Å"</code>. The zoom range is still <code>(0, 3)</code> Å by default and
+          still adjustable via <code>zoom_xylim</code> — but the value is no longer printed in the title.</li>
+        <li>On the aggregated figure (<code>min_rmsd_scatter_aggregated_all_models.svg</code>):
+          <ul>
+            <li>Left panel ("Auto-fit"): blue pinned rings on <code>6B8X 181-183</code> and <code>5MHX 162-164</code>;
+              orange rings on <code>2QCV 2-4</code> and <code>4OLE 424-426</code>; blue ring on
+              <code>5SOP 131-133</code>. <strong>No</strong> red <code>7Z0E</code> rings.</li>
+            <li>Right panel ("Zoomed"): everything from the left panel <strong>plus</strong> the curated red
+              <code>7Z0E</code> rings (<code>11-13, 18-20, 54-56, 82-84, 122-124, 181-183, 206-208, 214-216</code>).</li>
+          </ul>
+        </li>
+        <li>On each per-model figure (<code>min_rmsd_scatter_{model}.svg</code>): same per-panel split as the
+          aggregated figure — selections absent from a particular model's frame simply don't get circled in
+          that panel, as today.</li>
+        <li>Callers passing the flat <code>{color: [labels]}</code> shape see no change in output — both panels
+          receive the same extras, identical to current behavior.</li>
+        <li>Callers passing the nested shape with only one panel key (e.g. just <code>"zoom"</code>) see no
+          extras on the omitted panel; pinned blues still render on both panels.</li>
+        <li>Captions in the aggregated cell, the per-model cell, and <code>data_in_each_plot.md</code> describe
+          the new zoom-only placement of the <code>7Z0E</code> rings; nothing else in the notebook intro or
+          figure catalog changes.</li>
+      </ul>
+    </section>
+
+    <section id="changes">
+      <h2>Changes</h2>
+
+      <h3>1. <code>plot_scatter.py</code> &mdash; <code>make_min_rmsd_scatter</code></h3>
+      <ul>
+        <li>Hardcode the right-panel title to <code>"Zoomed"</code>. Replace the current
+          <code>f"Zoom ({zoom_xylim[0]:g}, {zoom_xylim[1]:g}) Å"</code> at the panel-tuple construction
+          (around <code>plot_scatter.py:434</code>). Leave <code>zoom_xylim</code> as a parameter — it still
+          drives the right panel's axis limits.</li>
+        <li>Broaden the type of <code>extra_highlight_groups</code> to accept either:
+          <ul>
+            <li>Flat: <code>dict[str, list[str]]</code> (color → labels), or</li>
+            <li>Nested: <code>dict[str, dict[str, list[str]]]</code> keyed by <code>"autofit"</code> and/or
+              <code>"zoom"</code>.</li>
+          </ul>
+        </li>
+        <li>Add a small internal resolver that returns the per-panel extras dict given the union input and a
+          panel identifier. Pseudocode (no implementation yet):
+          <pre><code>def _resolve_panel_extras(groups, panel):
+    # groups: None | flat dict | nested dict
+    # panel:  "autofit" | "zoom"
+    # nested if and only if the dict's keys are a non-empty subset of {"autofit", "zoom"}
+    # flat otherwise — return as-is for both panels</code></pre>
+          The flat-vs-nested branch is the explicit key-set check described in the refined prompt; no
+          normalization, no extra validation.</li>
+        <li>Thread the resolved per-panel extras into <code>_draw_min_rmsd_panel</code>. The cleanest path is to
+          pass the already-resolved dict (or <code>None</code>) into the existing
+          <code>extra_highlight_groups</code> parameter of the panel helper — the helper itself does not need
+          to know about the union.</li>
+        <li>Update the docstring of <code>make_min_rmsd_scatter</code> to document the union type and the
+          nested-key semantics, including the "omitted panel = no extras on that panel" rule. Mention that
+          pinned highlights are not per-panel.</li>
+      </ul>
+
+      <details>
+        <summary>Panel-resolution flow (diagram)</summary>
+        <div class="diagram"><pre><code>extra_highlight_groups
+        │
+        ▼
+ _resolve_panel_extras(groups, panel)
+        │
+   ┌────┴────────────────────────────────┐
+   │ keys ⊆ {"autofit", "zoom"} and  ?   │
+   │ at least one key present            │
+   └────┬────────────────────────────────┘
+        │ yes (nested)                       │ no (flat)
+        ▼                                    ▼
+ groups.get(panel, {})              groups   (same for both panels)
+        │                                    │
+        └─────────────┬──────────────────────┘
+                      ▼
+       passed into _draw_min_rmsd_panel as
+       extra_highlight_groups (unchanged contract)</code></pre></div>
+      </details>
+
+      <h3>2. <code>02_fit_quality.py</code> &mdash; <code>MIN_RMSD_EXTRA_HIGHLIGHTS</code></h3>
+      <ul>
+        <li>Restructure the constant (around <code>02_fit_quality.py:253</code>) from the current flat form to
+          the nested form. Orange (<code>2QCV 2-4</code>, <code>4OLE 424-426</code>) and blue
+          (<code>5SOP 131-133</code>) entries appear under <strong>both</strong> <code>"autofit"</code> and
+          <code>"zoom"</code> keys (verbatim duplication — chosen for explicitness over a magic
+          <code>"both"</code> key). Red <code>7Z0E</code> entries appear only under <code>"zoom"</code>.</li>
+        <li>Update the surrounding comment that explains the three color families to note that the
+          <code>7Z0E</code> set is intentionally zoom-only "to keep the global auto-fit panel readable."</li>
+        <li>No change to the two cells that consume the constant (aggregated cell around line 516,
+          per-model cell around line 550) — they continue to pass <code>MIN_RMSD_EXTRA_HIGHLIGHTS</code>
+          straight through. The plotting helper now interprets it correctly.</li>
+      </ul>
+
+      <h3>3. Documentation / caption updates</h3>
+      <ul>
+        <li><code>02_fit_quality.py</code> aggregated-cell markdown (around line 531): reword the closing
+          sentence so the red <code>7Z0E</code> set is described as appearing on the zoom panel only, while
+          the orange and blue groups appear on both panels.</li>
+        <li><code>02_fit_quality.py</code> per-model-cell markdown (around line 579): mirror the same
+          per-panel description (the per-model figures use the same constant, so they get the same
+          zoom-only treatment for <code>7Z0E</code>).</li>
+        <li><code>data_in_each_plot.md</code> aggregated section (around line 181): replace the current
+          single-paragraph description of the <code>7Z0E</code> red family with a per-panel breakdown of
+          which color groups appear on which panel. The per-model section (around line 211) currently says
+          "Same default highlight knobs and the same <code>MIN_RMSD_EXTRA_HIGHLIGHTS</code> overlay as the
+          aggregated figure" — update that sentence to state the per-panel split applies to per-model
+          figures too.</li>
+        <li>Rename the right panel reference in <code>data_in_each_plot.md</code> wherever the
+          <code>"Zoom (0, 3) Å"</code> phrasing appears (the file mentions "two side-by-side panels"
+          generically; verify and update any literal title references discovered while editing).</li>
+      </ul>
+
+      <h3>4. Regenerate the SVGs</h3>
+      <ul>
+        <li>After the code + caption edits, re-run the relevant marimo cells (or
+          <code>uv run marimo export script 02_fit_quality.py &gt; _smoke.py &amp;&amp; uv run python _smoke.py</code>
+          per <code>CLAUDE.md</code>) with <code>auto_save</code> and <code>save_all_scatter</code> enabled
+          so every file in <code>figures/rmsd_scatterplots/</code> picks up the new title and the per-panel
+          highlight split.</li>
+      </ul>
+
+      <h3>Out of scope</h3>
+      <ul>
+        <li>No changes to <code>make_scatter_comparison</code>, <code>make_rscc_scatter</code>, or
+          <code>make_aggregated_scatter</code> — only <code>make_min_rmsd_scatter</code> has the two-panel
+          shape that motivates this.</li>
+        <li>No changes to <code>pinned_highlights</code> behavior anywhere.</li>
+        <li>No repo-wide sweep for additional callers of <code>make_min_rmsd_scatter</code> beyond the two
+          known cells.</li>
+        <li>No new validation / typo-detection in the nested-form key check.</li>
+      </ul>
+    </section>
+
+    <section id="open-questions" class="open-questions">
+      <h2>Open questions</h2>
+      <ul>
+        <li><strong>None.</strong> All design decisions resolved in Q&amp;A: hardcoded <code>"Zoomed"</code>
+          title, union-typed <code>extra_highlight_groups</code> with key-set detection, missing-panel-key
+          means no extras, pinned highlights remain shared, orange+blue groups duplicated explicitly under
+          both panel keys in the notebook, captions updated in the notebook and
+          <code>data_in_each_plot.md</code>, and no extra runtime validation.</li>
+        <li>Surface here only if implementation uncovers a wrinkle (e.g. an unexpected third caller of
+          <code>make_min_rmsd_scatter</code> in archived material, or an <code>adjust_text</code>
+          regression triggered by the smaller highlight set on the auto-fit panel).</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>
