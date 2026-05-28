@@ -285,6 +285,42 @@ def _parse_b_occupancy(s) -> float:
         return np.nan
 
 
+def _parse_min_predicted_occupancy(s) -> float:
+    """Return the minimum entry of an ``occupancies`` cell.
+
+    Handles the numpy array repr used in ``lddt_results.csv``, which may have
+    2 or more entries (e.g. ``"[0.375 0.625]"``, ``"[1. 0.]"``,
+    ``"[0.5 0.25 0.25]"``). NaN for unparseable / missing cells.
+    """
+    if not isinstance(s, str):
+        return np.nan
+    parts = s.strip("[] ").split()
+    if not parts:
+        return np.nan
+    try:
+        return float(min(float(p) for p in parts))
+    except ValueError:
+        return np.nan
+
+
+_ALTLOC_OCC_PATTERN = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
+
+
+def _parse_min_map_occupancy(s) -> float:
+    """Return the minimum occupancy from a stringified ``altloc_occupancies`` dict.
+
+    The ``altloc_occupancies`` column is the Python ``repr`` of a dict, e.g.
+    ``"{'A': 0.5, 'B': 0.5}"`` or ``"{'A': 0.25, 'B': 0.75}"``. We pull out
+    every numeric literal and return the minimum. NaN for unparseable cells.
+    """
+    if not isinstance(s, str):
+        return np.nan
+    nums = [float(m) for m in _ALTLOC_OCC_PATTERN.findall(s)]
+    if not nums:
+        return np.nan
+    return float(min(nums))
+
+
 def load_lddt(csv_path: str) -> pd.DataFrame:
     """Load LDDT results with graceful missing-file fallback.
 
@@ -306,6 +342,9 @@ def load_lddt(csv_path: str) -> pd.DataFrame:
         "occupancies",
         "avg_silhouette",
         "avg_silhouette_to_ref",
+        "min_predicted_occupancy",
+        "min_map_occupancy",
+        "clustering_score",
     ]
     if not os.path.exists(csv_path):
         print(f"⚠️  {csv_path} not found — LDDT sections will be empty")
@@ -318,6 +357,13 @@ def load_lddt(csv_path: str) -> pd.DataFrame:
         axis=1,
     )
     df["model_name"] = df["model_name"].map(lambda x: MODEL_NAME_ALIAS.get(x, x))
+    df["min_predicted_occupancy"] = df["occupancies"].map(_parse_min_predicted_occupancy)
+    df["min_map_occupancy"] = df["altloc_occupancies"].map(_parse_min_map_occupancy)
+    df["clustering_score"] = (
+        df["min_predicted_occupancy"]
+        * df["avg_silhouette_to_ref"]
+        / df["min_map_occupancy"]
+    )
     return df[_cols]
 
 

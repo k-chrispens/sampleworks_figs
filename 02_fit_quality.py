@@ -83,8 +83,10 @@ def _(mo):
     experimental data, using two complementary metrics:
 
     1. **RSCC** — measures how well predicted density matches observed electron density.
-    2. **LDDT-based silhouette score** — measures structural clustering quality
-       relative to a reference structure.
+    2. **LDDT-based clustering score** — measures structural clustering quality
+       relative to a reference structure, weighted by recovered occupancy.
+       Defined as ``min(predicted_occupancies) * avg_silhouette_to_ref /
+       min(map_occupancies)``.
 
     ## Figures produced by this notebook
 
@@ -98,7 +100,7 @@ def _(mo):
     | -- | Aggregated min-RMSD scatter (A vs B) | `rmsd_scatterplots/min_rmsd_scatter_aggregated_all_models.svg` |
     | -- | Per-model min-RMSD scatter (A vs B) | `rmsd_scatterplots/min_rmsd_scatter_{model}.svg` |
     | -- | RSCC by classification (combined 4×4 grid) | `rscc_scatterplots/rscc_by_class_combined.svg` |
-    | -- | Aggregated LDDT scatter | `rscc_scatterplots/silhouette_scatter_aggregated_all_models.svg` |
+    | -- | Aggregated clustering score scatter | `rscc_scatterplots/clustering_score_scatter_aggregated_all_models.svg` |
     """)
 
     model_group = mo.ui.dropdown(
@@ -159,15 +161,15 @@ def _(add_simplified_metadata_columns, load_lddt, nan_rscc_proteins):
         lddt_results_1 = lddt_results_1[~lddt_results_1["protein"].isin(nan_rscc_proteins)]
 
     _lddt_baseline = lddt_results_1.query('guidance_strength == "baseline"')[
-        ["protein", "model_name", "selection_name", "avg_silhouette_to_ref"]
+        ["protein", "model_name", "selection_name", "clustering_score"]
     ]
     lddt_merged = _lddt_baseline.merge(
         lddt_results_1.query('guidance_strength != "baseline"'),
         on=["protein", "model_name", "selection_name"],
         suffixes=["_baseline", ""],
     )
-    lddt_merged["delta_silhouette_to_ref"] = (
-        lddt_merged.avg_silhouette_to_ref - lddt_merged.avg_silhouette_to_ref_baseline
+    lddt_merged["delta_clustering_score"] = (
+        lddt_merged.clustering_score - lddt_merged.clustering_score_baseline
     )
     return lddt_merged, lddt_results_1
 
@@ -417,7 +419,7 @@ def _(OPTIMAL_GW, lddt_results_1, pd, rscc_all):
         _lddt_filtered.merge(_gw_df, on="model_name")
         .query("guidance_weight == optimal_gw")
         .groupby(["protein", "model_name"], as_index=False)
-        .agg(avg_silhouette_to_ref=("avg_silhouette_to_ref", "mean"))
+        .agg(clustering_score=("clustering_score", "mean"))
     )
 
     cross_metric_df = _rscc_at_opt.merge(_lddt_at_opt, on=["protein", "model_name"])
@@ -437,7 +439,7 @@ def _(
     scatter_model,
 ):
     _scatter_kwargs = dict(
-        x_col="rscc", y_col="avg_silhouette_to_ref",
+        x_col="rscc", y_col="clustering_score",
         x_label="RSCC",
         y_label="Clustering Score",
         draw_regression=True, label_all=True, equal_aspect=False,
@@ -458,7 +460,7 @@ def _(
         save_fig(_fig, f"cross_metric_scatterplots/rscc_vs_lddt_{model_slug(_cur)}.svg")
     mo.vstack([
         mo.md("""## RSCC vs LDDT Scatter -- Cross-Metric Comparison
-        Per-model scatter comparing RSCC with LDDT silhouette-to-ref at optimal guidance.
+        Per-model scatter comparing RSCC with LDDT clustering score at optimal guidance.
         `figures/cross_metric_scatterplots/rscc_vs_lddt_{model}.svg`"""),
         _fig,
     ])
@@ -691,14 +693,14 @@ def _(
     _lddt_nontrivial = lddt_results_1[lddt_results_1["selection_name"] != "all altloc"]
     _baseline_lddt = (
         _lddt_nontrivial.query("guidance_weight == 0.0 and model_name not in @MODELS_ALT")
-        [["protein", "selection", "model_name", "avg_silhouette_to_ref"]]
-        .rename(columns={"avg_silhouette_to_ref": "lddt_baseline"})
+        [["protein", "selection", "model_name", "clustering_score"]]
+        .rename(columns={"clustering_score": "lddt_baseline"})
     )
     _optimal_lddt = (
         _lddt_nontrivial.merge(_gw_df, on="model_name")
         .query("guidance_weight == optimal_gw and model_name not in @MODELS_ALT")
-        [["protein", "selection", "model_name", "avg_silhouette_to_ref"]]
-        .rename(columns={"avg_silhouette_to_ref": "lddt_optimal"})
+        [["protein", "selection", "model_name", "clustering_score"]]
+        .rename(columns={"clustering_score": "lddt_optimal"})
     )
     _lddt_per_sel = _baseline_lddt.merge(
         _optimal_lddt, on=["protein", "selection", "model_name"]
@@ -733,7 +735,7 @@ def _(
         xlim=(0.0, 1.0),
     )
     if auto_save.value:
-        save_fig(_fig_lddt, "rscc_scatterplots/silhouette_scatter_aggregated_all_models.png")
+        save_fig(_fig_lddt, "rscc_scatterplots/clustering_score_scatter_aggregated_all_models.png")
 
     mo.vstack([
         mo.md("""## Aggregated Clustering Score Scatter

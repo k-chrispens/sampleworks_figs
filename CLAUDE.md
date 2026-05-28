@@ -42,7 +42,7 @@ Read module docstrings for full APIs and design notes. **`data_in_each_plot.md` 
 |---|---|
 | `initial40results/rscc_results.csv` | RSCC for main models, all 50/50 occupancies, all gws (per altloc-region) |
 | `initial40results/rscc_results_domain_shift.csv` | Whole-domain RSCC for the domain-shift class only (clean extract from legacy `.bak`; `rf3-old` excluded) |
-| `initial40results/lddt_results.csv` | lDDT silhouette + predicted occupancies |
+| `initial40results/lddt_results.csv` | lDDT silhouette + predicted occupancies (loader derives `clustering_score = min(predicted_occ) * avg_silhouette_to_ref / min(map_occ)`) |
 | `initial40results/Sampleworks_initial_structures.csv` | Per-protein deposition date + Pre/Post cutoff flag |
 | `initial40results/{clashscore_metrics,bond_*_violation_fractions}.csv` | Geometry metrics for the spiral figures |
 | `min_altloc_rmsd_results_{boltz_protenix,protenix_mini,protenix_tiny,rf3_fixed}.csv` | Per-(protein, model, gw, selection) minimum RMSD across the 8-member ensemble to each altloc — loaded one-CSV-per-call by `load_min_altloc_rmsd` and concatenated in the notebook |

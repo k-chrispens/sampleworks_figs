@@ -25,7 +25,16 @@ Used by: clashscore, bond angle, and bond length data.
 ### 3. LDDT data (`load_lddt`)
 
 - The LDDT CSV also has a string column `altloc_occupancies`; **only rows where `altloc_occupancies == "{'A': 0.5, 'B': 0.5}"` are kept** (same filter as RSCC).
-- Columns retained: `protein`, `model_name`, `guidance_weight`, `selection`, `occupancies`, `avg_silhouette`, `avg_silhouette_to_ref`.
+- Columns retained: `protein`, `model_name`, `guidance_weight`, `selection`, `occupancies`, `avg_silhouette`, `avg_silhouette_to_ref`, `min_predicted_occupancy`, `min_map_occupancy`, `clustering_score`.
+- **Clustering score** is computed at load time as
+  ``clustering_score = min(predicted_occupancies) * avg_silhouette_to_ref / min(map_occupancies)``,
+  where ``predicted_occupancies`` is parsed from the ``occupancies`` column
+  (numpy array repr, may have 2+ entries) and ``map_occupancies`` is parsed
+  from the ``altloc_occupancies`` column (Python dict repr). Because every
+  loader output is filtered to ``altloc_occupancies == "{'A': 0.5, 'B': 0.5}"``,
+  ``min_map_occupancy`` is always ``0.5`` in the current analysis; the
+  divisor is kept explicit so non-50/50 splits can be supported without
+  code changes downstream.
 
 ### 4. Model name aliasing (all loaders)
 
@@ -86,7 +95,7 @@ Several figures are rendered in three variants via a UI dropdown. The model grou
 
 **RSCC aggregation step:** After loading, RSCC rows are grouped by `(protein, model_name, guidance_weight)` and averaged across all per-altloc-region selections (`.mean()`), yielding one RSCC value per (protein, model, gw) triple.
 
-**LDDT baseline merge:** Baseline LDDT rows (`guidance_strength == "baseline"`) are extracted with their `avg_silhouette_to_ref` value, then merged back onto non-baseline rows by `(protein, model_name, selection_name)` to compute `delta_silhouette_to_ref = guided - baseline`.
+**LDDT baseline merge:** Baseline LDDT rows (`guidance_strength == "baseline"`) are extracted with their `clustering_score` value, then merged back onto non-baseline rows by `(protein, model_name, selection_name)` to compute `delta_clustering_score = guided - baseline`.
 
 ---
 
@@ -220,11 +229,11 @@ Each loader applies the standard 50/50 occupancy filter (`altloc_occupancies == 
 
 ### RSCC vs LDDT Cross-Metric Scatter Plots (per model)
 
-**What is plotted:** Scatter comparing RSCC (x) vs LDDT silhouette-to-ref (y), both at the optimal guidance weight. One point per protein. Regression line + Pearson r displayed.
+**What is plotted:** Scatter comparing RSCC (x) vs clustering score (y), both at the optimal guidance weight. One point per protein. Regression line + Pearson r displayed.
 
 **Data construction:**
 1. RSCC at optimal gw per model (same as scatter plot above).
-2. LDDT at optimal gw: filtered to `selection_name != 'all altloc'`, then for each model at its optimal gw, `avg_silhouette_to_ref` is **averaged across all remaining selections** per protein.
+2. LDDT at optimal gw: filtered to `selection_name != 'all altloc'`, then for each model at its optimal gw, `clustering_score` is **averaged across all remaining selections** per protein.
 3. Merged on `(protein, model_name)`.
 
 **Data included:**
@@ -238,9 +247,9 @@ Each loader applies the standard 50/50 occupancy filter (`altloc_occupancies == 
 
 ---
 
-### Aggregated LDDT Scatter — All Main Models Combined
+### Aggregated Clustering Score Scatter — All Main Models Combined
 
-**What is plotted:** Same residual scatter style as the aggregated RSCC scatter, but for LDDT silhouette-to-ref. One point per **(protein, selection)** pair; baseline and optimally-guided LDDT collapsed across main models using the **median**.
+**What is plotted:** Same residual scatter style as the aggregated RSCC scatter, but for the LDDT-derived clustering score. One point per **(protein, selection)** pair; baseline and optimally-guided clustering score collapsed across main models using the **median**.
 
 **Data construction:**
 1. LDDT filtered to `selection_name != 'all altloc'`.
@@ -454,7 +463,7 @@ The following data **never appears in any plot**:
 | Min-RMSD Scatter Aggregated | Yes | n < 3 main models dropped; NaN RMSD pre-dropped | Main only |
 | Min-RMSD Scatter (per model) | Yes | NaN RMSD pre-dropped | One model each (data exists for 6 of 7) |
 | RSCC vs LDDT (per model) | Yes (LDDT side) | None | One model each |
-| Aggregated LDDT Scatter | Yes | n < 3 main models dropped | Main only |
+| Aggregated Clustering Score Scatter | Yes | n < 3 main models dropped | Main only |
 | By-Class Combined Grid | Yes (small-segment branch) | None | Main only |
 | 29 Training Bias Small Multiples | N/A (cluster-frame join) | s_cluster == 0 dropped | Main only |
 | 30 Calibration Overlay Low Cluster | N/A | n_cluster_evaluated > 5 dropped | Main only |

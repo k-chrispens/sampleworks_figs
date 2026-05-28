@@ -15,7 +15,7 @@ def make_combined_baseline_distributions(
     rscc_df: pd.DataFrame,
     lddt_df: pd.DataFrame,
     rscc_col: str = "rscc",
-    lddt_col: str = "avg_silhouette_to_ref",
+    lddt_col: str = "clustering_score",
     rscc_xlabel: str = "RSCC",
     lddt_xlabel: str = "Clustering Score",
     smoothing: float = 0.15,
