@@ -4,6 +4,70 @@ This document describes, for every figure produced by the analysis notebooks, ex
 
 ---
 
+## Data Source Inventory
+
+> **Maintenance note (canonical inventory — keep in sync).** This section is the reference source for *every* CSV in the project: what it holds, whether it is used, and where. The tables below were last audited **2026-05-28**. **If any CSV listed here is deleted, renamed, or added, update this section** — otherwise the "Status" column silently goes stale. The per-figure "Source data" subsections elsewhere in this document describe individual figures; this section is the project-wide index.
+
+### Structural facts
+
+- **`.gitignore` excludes `initial40results*/` and `combined_occ_sweep_results/`.** So the base-directory CSVs are the **git-tracked source inputs**, while everything in `initial40results/` (the derived/merged products + multi-GB raw detail) and the two backup/source dirs are **local-only** and not version-controlled.
+- **Two merge scripts build the derived files, from different eras:**
+  - `merge_combined_into_initial.py` — *old* pipeline. Created `initial40results_backup/` and last wrote `clashscore_metrics.csv` + the bond-violation-fraction files (so those still carry the `protenix-mini`/`-tiny`/`rf3-fixed`/`rf3-chiral-off` variants).
+  - `merge_new_rscc_lddt.py` — *newer* (2026-04-24). **Fully replaced** `rscc_results.csv` and `lddt_results.csv` from the base-dir source CSVs, backing the old ones up as `*.csv.bak`.
+
+**Status legend:** **Core** = loaded directly by a notebook, feeds figures · **Rebuild source** = not loaded by notebooks but consumed by a merge script to build a Core file · **Orphaned** = present but neither loaded nor consumed by the current pipeline (contains usable data) · **Superseded** = replaced by another file the pipeline now uses · **Unused** = referenced nowhere (raw detail or exploratory).
+
+### `initial40results/` (local-only, gitignored)
+
+| File | Size | What it actually holds | Status — used where |
+|---|---|---|---|
+| `rscc_results.csv` | 68 MB | Per-altloc-region RSCC, all occupancies/gws. Built by `merge_new_rscc_lddt.py` → boltz2 MD/XRAY, protenix, rf3, rf3-chiral-off (no protenix-mini/tiny) | **Core** — `load_rscc`, `get_rscc_nan_proteins`; nb 02 + 03 |
+| `lddt_results.csv` | 53 MB | lDDT silhouette + predicted occupancies; same model set as above | **Core** — `load_lddt`; nb 02 + 03 |
+| `rscc_results_domain_shift.csv` | 0.1 MB | Whole-domain RSCC, domain-shift class only (clean extract from legacy `.bak`, `rf3-old` dropped) | **Core** — nb 02 by-class grid (domain-shift column) |
+| `clashscore_metrics.csv` | 11.5 MB | Per-model clashscore / num_clashes (path-encoded). From the *old* merge → still carries protenix-mini/tiny/rf3-fixed/rf3-chiral-off | **Core** — nb 03 spiral |
+| `bond_angle_violation_fractions.csv` | 11.6 MB | Aggregated bond-angle outlier fraction per model | **Core** — nb 03 spiral |
+| `bond_length_violation_fractions.csv` | 11.9 MB | Aggregated bond-length outlier fraction per model | **Core** — nb 03 spiral |
+| `Sampleworks_initial_structures.csv` | 2 KB | Per-protein deposit date, Pre/Post-cutoff flag, resolution, Rfree, cluster size | **Core** — `load_deposition_cutoffs` |
+| `bond_angle_outliers.csv` | **3.0 GB** | Per-*atom* outlier detail behind the angle fractions | **Unused** — only the aggregated fraction file is read |
+| `bond_length_outliers.csv` | **4.2 GB** | Per-atom outlier detail behind the length fractions | **Unused** |
+| `initial_40_tortoize_residues.csv` | **4.0 GB** | Per-residue Ramachandran / torsion Z-scores | **Unused** — no figure touches tortoize |
+| `initial_40_tortoize_protein_stats.csv` | 16 MB | Per-model Ramachandran / torsion Z-scores | **Unused** |
+| `clashscore_metrics_unpatched_cifs.csv` | 0.4 MB | Clashscores computed on *unpatched* cifs | **Superseded** by `clashscore_metrics.csv` |
+| `clashscore_w_baseline.csv` | 0.8 MB | Clashscores including baseline rows | **Superseded** |
+| `boltz2_msa_depth.csv` | 432 B | MSA depth per PDB (exploratory) | **Unused** |
+| `*.csv.bak` (7 files) | — | Pre-2026-04-24 `rscc`/`lddt` snapshots (incl. `_aligned_*`, `_w_baseline`, `_patched`) | **Superseded** — "no longer used" per merge docstring |
+
+The `*_outliers.csv` (≈7.2 GB) and `initial_40_tortoize_residues.csv` (≈4 GB) dominate the directory and feed nothing — they are the raw per-atom / per-residue detail behind metrics that only enter figures in aggregated form.
+
+### Base directory (git-tracked source inputs)
+
+| File | What it is | Status — used where |
+|---|---|---|
+| `small-altlocs-classified-rmsd.csv` | Region classification by **RMSD** (large_loop 450 / small_loop 274 / side_chain 66 / domain_shift 1) | **Core** — `load_classification`; nb 02 |
+| `min_altloc_rmsd_results_boltz_protenix.csv` | Min RMSD to each altloc — boltz2 XRD/MD, protenix | **Core** — `load_min_altloc_rmsd`; nb 02 |
+| `min_altloc_rmsd_results_protenix_mini.csv` / `_tiny.csv` | Same, protenix-mini / -tiny (`model_name_override`) | **Core** — nb 02 (only place mini/tiny get a figure) |
+| `min_altloc_rmsd_results_rf3_fixed.csv` | Same, rf3 | **Core** — nb 02 |
+| `lddt_assignment_counts.csv` | Pre-cutoff cluster members assigned to altloc A/B by **lDDT** | **Core** — `load_training_cluster_counts`; nb 03 training bias |
+| `rscc_results_other_models.csv` | boltz2 + protenix RSCC (raw run) | **Rebuild source** → `rscc_results.csv` |
+| `rscc_results_rf3_fixed.csv` | rf3 RSCC (raw run) | **Rebuild source** → `rscc_results.csv` |
+| `rscc_results_rf3_fixed_chiral_off.csv` | rf3-chiral-off RSCC | **Rebuild source** → `rscc_results.csv` |
+| `lddt_results_other_models.csv` | boltz2 + protenix lDDT | **Rebuild source** → `lddt_results.csv` |
+| `lddt_results_rf3_fixed.csv` | rf3 lDDT | **Rebuild source** → `lddt_results.csv` |
+| `lddt_results_rf3_fixed_chiral_off.csv` | rf3-chiral-off lDDT | **Rebuild source** → `lddt_results.csv` |
+| `rscc_results_protenix_mini.csv` / `_tiny.csv` | protenix-mini/-tiny **RSCC** (3,081 / 4,290 non-null at 50/50, 35 proteins) | **Orphaned** — not in merge sources, never loaded |
+| `lddt_results_protenix_mini.csv` / `_tiny.csv` | protenix-mini/-tiny **lDDT** (≈4,277 non-null at 50/50, 35 proteins) | **Orphaned** — docstring calls them an "older run," not merged |
+| `classify_altloc_regions.csv` | Same 791 regions classified by **backbone lDDT** instead of RMSD | **Superseded** by the RMSD version above |
+| `max_rmsd_within_rmsd_2021-09-30.csv` / `_1A.csv` | Cluster assignment by **RMSD threshold** (2 Å / 1 Å) | **Superseded** — RMSD twin of `lddt_assignment_counts.csv` |
+| `classify_altloc_selections.csv` | Upstream pipeline metadata: selection strings, map patterns | **Unused** — provenance only |
+| `classify_input_proteins.csv` | Upstream pipeline metadata: input structure/density paths | **Unused** — provenance only |
+
+### Two cross-cutting patterns
+
+1. **Every classification/assignment file has an lDDT twin and an RMSD twin, and the notebooks mix which they use.** Region classification uses **RMSD** (`small-altlocs-classified-rmsd.csv`) and ignores the lDDT twin (`classify_altloc_regions.csv`); training-cluster assignment uses **lDDT** (`lddt_assignment_counts.csv`) and ignores the RMSD twins (`max_rmsd_within_rmsd_*.csv`). The unused twins are the road-not-taken metric for each — archival, not junk.
+2. **Model-coverage gap (not just unused files).** The current `rscc_results.csv` / `lddt_results.csv` deliberately omit protenix-mini/tiny, but the geometry CSVs (clashscore + bond, from the old merge) *and* the min-RMSD CSVs include them. Net: **protenix-mini/-tiny appear in spiral and min-RMSD figures but cannot appear in any RSCC or LDDT figure** (the per-model dropdown is empty for them; aggregated figures hide this by dropping `MODELS_ALT`). The four **Orphaned** base-dir files hold the data that would close this gap if folded into `merge_new_rscc_lddt.py`'s source lists.
+
+---
+
 ## Global Filters (applied at data-loading time)
 
 These filters are baked into the data-loading functions in `loaders.py` and apply to **every** downstream plot that uses that loader. Any data excluded here never reaches any figure.
