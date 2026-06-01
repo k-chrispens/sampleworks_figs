@@ -6,13 +6,15 @@ This document describes, for every figure produced by the analysis notebooks, ex
 
 ## Data Source Inventory
 
-> **Maintenance note (canonical inventory — keep in sync).** This section is the reference source for *every* CSV in the project: what it holds, whether it is used, and where. The tables below were last audited **2026-05-28**. **If any CSV listed here is deleted, renamed, or added, update this section** — otherwise the "Status" column silently goes stale. The per-figure "Source data" subsections elsewhere in this document describe individual figures; this section is the project-wide index.
+> **Maintenance note (canonical inventory — keep in sync).** This section is the reference source for *every* CSV in the project: what it holds, whether it is used, and where. The tables below were last audited **2026-05-29**. **If any CSV listed here is deleted, renamed, or added, update this section** — otherwise the "Status" column silently goes stale. The per-figure "Source data" subsections elsewhere in this document describe individual figures; this section is the project-wide index.
+>
+> **2026-05-29 cleanup.** Deleted the Unused raw-detail files (`bond_angle_outliers.csv`, `bond_length_outliers.csv`, `initial_40_tortoize_residues.csv`, `initial_40_tortoize_protein_stats.csv` — ~11.2 GB), the Superseded small files (`clashscore_w_baseline.csv`, `clashscore_metrics_unpatched_cifs.csv`, `boltz2_msa_depth.csv`), all 7 `*.csv.bak` snapshots, and the `initial40results_backup/` directory. The `rscc_results.csv.bak` was confirmed reproducible first: all 66 of its per-region selections are present in `small-altlocs-classified-rmsd.csv` (40 proteins, 0 missing), and its 40 per-protein "all altloc" aggregates are just the union of each protein's regions. Kept: all Core files, the 6 Rebuild-source CSVs, the 4 Orphaned protenix-mini/tiny files, and `combined_occ_sweep_results/` (still the only rebuild source for the geometry Core files).
 
 ### Structural facts
 
 - **`.gitignore` excludes `initial40results*/` and `combined_occ_sweep_results/`.** So the base-directory CSVs are the **git-tracked source inputs**, while everything in `initial40results/` (the derived/merged products + multi-GB raw detail) and the two backup/source dirs are **local-only** and not version-controlled.
 - **Two merge scripts build the derived files, from different eras:**
-  - `merge_combined_into_initial.py` — *old* pipeline. Created `initial40results_backup/` and last wrote `clashscore_metrics.csv` + the bond-violation-fraction files (so those still carry the `protenix-mini`/`-tiny`/`rf3-fixed`/`rf3-chiral-off` variants).
+  - `merge_combined_into_initial.py` — *old* pipeline. Last wrote `clashscore_metrics.csv` + the bond-violation-fraction files (so those still carry the `protenix-mini`/`-tiny`/`rf3-fixed`/`rf3-chiral-off` variants). It also created `initial40results_backup/`, which was **deleted 2026-05-29**; rerunning the script would recreate it.
   - `merge_new_rscc_lddt.py` — *newer* (2026-04-24). **Fully replaced** `rscc_results.csv` and `lddt_results.csv` from the base-dir source CSVs, backing the old ones up as `*.csv.bak`.
 
 **Status legend:** **Core** = loaded directly by a notebook, feeds figures · **Rebuild source** = not loaded by notebooks but consumed by a merge script to build a Core file · **Orphaned** = present but neither loaded nor consumed by the current pipeline (contains usable data) · **Superseded** = replaced by another file the pipeline now uses · **Unused** = referenced nowhere (raw detail or exploratory).
@@ -28,16 +30,8 @@ This document describes, for every figure produced by the analysis notebooks, ex
 | `bond_angle_violation_fractions.csv` | 11.6 MB | Aggregated bond-angle outlier fraction per model | **Core** — nb 03 spiral |
 | `bond_length_violation_fractions.csv` | 11.9 MB | Aggregated bond-length outlier fraction per model | **Core** — nb 03 spiral |
 | `Sampleworks_initial_structures.csv` | 2 KB | Per-protein deposit date, Pre/Post-cutoff flag, resolution, Rfree, cluster size | **Core** — `load_deposition_cutoffs` |
-| `bond_angle_outliers.csv` | **3.0 GB** | Per-*atom* outlier detail behind the angle fractions | **Unused** — only the aggregated fraction file is read |
-| `bond_length_outliers.csv` | **4.2 GB** | Per-atom outlier detail behind the length fractions | **Unused** |
-| `initial_40_tortoize_residues.csv` | **4.0 GB** | Per-residue Ramachandran / torsion Z-scores | **Unused** — no figure touches tortoize |
-| `initial_40_tortoize_protein_stats.csv` | 16 MB | Per-model Ramachandran / torsion Z-scores | **Unused** |
-| `clashscore_metrics_unpatched_cifs.csv` | 0.4 MB | Clashscores computed on *unpatched* cifs | **Superseded** by `clashscore_metrics.csv` |
-| `clashscore_w_baseline.csv` | 0.8 MB | Clashscores including baseline rows | **Superseded** |
-| `boltz2_msa_depth.csv` | 432 B | MSA depth per PDB (exploratory) | **Unused** |
-| `*.csv.bak` (7 files) | — | Pre-2026-04-24 `rscc`/`lddt` snapshots (incl. `_aligned_*`, `_w_baseline`, `_patched`) | **Superseded** — "no longer used" per merge docstring |
 
-The `*_outliers.csv` (≈7.2 GB) and `initial_40_tortoize_residues.csv` (≈4 GB) dominate the directory and feed nothing — they are the raw per-atom / per-residue detail behind metrics that only enter figures in aggregated form.
+*Deleted 2026-05-29 (see cleanup note above):* `bond_angle_outliers.csv`, `bond_length_outliers.csv`, `initial_40_tortoize_residues.csv`, `initial_40_tortoize_protein_stats.csv` (Unused raw per-atom/per-residue detail behind the aggregated fraction files; no figure touched tortoize); `clashscore_metrics_unpatched_cifs.csv`, `clashscore_w_baseline.csv` (Superseded by `clashscore_metrics.csv`); `boltz2_msa_depth.csv` (Unused exploratory); and all 7 `*.csv.bak` snapshots (Superseded pre-2026-04-24 `rscc`/`lddt` backups). The geometry detail is regenerable from `combined_occ_sweep_results/` if ever needed.
 
 ### Base directory (git-tracked source inputs)
 
