@@ -1,11 +1,86 @@
-# 2QCV: density input + protenix + RF3 predictions
-# Render protenix and rf3 separately by toggling show/hide before each ray.
+# 2QCV: density input + boltz2 (X-ray, MD) + protenix + RF3 predictions
+# Render each model separately by toggling show/hide before each ray.
+
+# ---------------------------------------------------------------
+# Alt-loc cartoon fix (non-rebond default for PyMOL < 3.2)
+# This crystallographic density input encodes the blank alt-id as a quoted
+# space (' ') instead of the mmCIF null (.). PyMOL only forms a blank<->A/B
+# bond when the blank alt is the empty string, so every blank<->A/B backbone
+# peptide bond is dropped at load and the cartoon shatters into fragments at
+# alt-loc residues. The cartoon spline is cached from load-time connectivity,
+# so a post-load bond cannot repair it - the file is fixed BEFORE load.
+# load_altfix rewrites ONLY the label_alt_id column (quoted-space to dot) in
+# memory, then loads, so blank<->A/B bonds form at load and the cartoon holds.
+# PyMOL 3.2+ alternative (drop this block) is plain load, then
+#   alter obj, alt=alt.strip()
+#   rebond obj
+# ---------------------------------------------------------------
+python
+def _altfix_text(txt):
+    L = txt.split("\n")
+    cols = [l.strip() for l in L if l.strip().startswith("_atom_site.")]
+    if "_atom_site.label_alt_id" not in cols:
+        return txt
+    ai = cols.index("_atom_site.label_alt_id")
+    def fix(line):
+        i, n, k = 0, len(line), 0
+        while i < n:
+            while i < n and line[i] in " \t":
+                i += 1
+            if i >= n:
+                break
+            s = i
+            if line[i] in "'\"":
+                q = line[i]; i += 1
+                while i < n and not (line[i] == q and (i + 1 >= n or line[i + 1] in " \t")):
+                    i += 1
+                i += 1; v = line[s + 1:i - 1]
+            else:
+                while i < n and line[i] not in " \t":
+                    i += 1
+                v = line[s:i]
+            if k == ai:
+                return (line[:s] + "." + line[i:]) if v.strip() == "" else line
+            k += 1
+        return line
+    return "\n".join(fix(l) if (l[:4] == "ATOM" or l[:6] == "HETATM") else l for l in L)
+def load_altfix(filename, oname):
+    with open(filename) as _fh:
+        cmd.load_raw(_altfix_text(_fh.read()), "cif", oname.strip())
+cmd.extend("load_altfix", load_altfix)
+python end
 
 # Density input (reference)
-load ./2QCV_single_001_density_input.cif, density_input
+load_altfix ./2QCV_single_001_density_input.cif, density_input
 color gray70, density_input
 util.cnc density_input
 show cartoon, density_input
+
+# Boltz2 X-ray predictions
+load ./boltz2xray_2QCV_0.0.cif, boltz2_xray_baseline
+align boltz2_xray_baseline, density_input
+color good_darkblue, boltz2_xray_baseline
+util.cnc boltz2_xray_baseline
+show cartoon, boltz2_xray_baseline
+
+load ./boltz2xray_2QCV_0.1.cif, boltz2_xray_gw_0_1
+align boltz2_xray_gw_0_1, density_input
+color good_darkblue, boltz2_xray_gw_0_1
+util.cnc boltz2_xray_gw_0_1
+show cartoon, boltz2_xray_gw_0_1
+
+# Boltz2 MD predictions
+load ./boltz2md_2QCV_0.0.cif, boltz2_md_baseline
+align boltz2_md_baseline, density_input
+color good_teal, boltz2_md_baseline
+util.cnc boltz2_md_baseline
+show cartoon, boltz2_md_baseline
+
+load ./boltz2md_2QCV_0.1.cif, boltz2_md_gw_0_1
+align boltz2_md_gw_0_1, density_input
+color good_teal, boltz2_md_gw_0_1
+util.cnc boltz2_md_gw_0_1
+show cartoon, boltz2_md_gw_0_1
 
 # Protenix predictions
 load ./protenix_2QCV_0.0.cif, protenix_baseline
@@ -46,6 +121,8 @@ util.cnc rf3_gw_0_02
 show cartoon, rf3_gw_0_02
 
 # Groups for easy show/hide toggling
+group boltz2_xray, boltz2_xray_baseline boltz2_xray_gw_0_1
+group boltz2_md, boltz2_md_baseline boltz2_md_gw_0_1
 group protenix, protenix_baseline protenix_gw_0_1
 group rf3, rf3_baseline rf3_gw_0_005 rf3_gw_0_01 rf3_gw_0_02
 
@@ -76,6 +153,32 @@ set_view (\
 # Toggle visibility per-render, e.g.:
 disable all
 enable density_input
+
+# --- Boltz2 X-ray  (baseline gw0.0 -> guided gw0.1) ---
+enable boltz2_xray
+enable boltz2_xray_baseline
+ray 2400, 1800
+png boltz2_xray_2QCV_baseline.png, dpi=300
+
+disable boltz2_xray_baseline
+enable boltz2_xray_gw_0_1
+ray 2400, 1800
+png boltz2_xray_2QCV_guided.png, dpi=300
+
+# --- Boltz2 MD  (baseline gw0.0 -> guided gw0.1) ---
+disable boltz2_xray
+enable boltz2_md
+enable boltz2_md_baseline
+ray 2400, 1800
+png boltz2_md_2QCV_baseline.png, dpi=300
+
+disable boltz2_md_baseline
+enable boltz2_md_gw_0_1
+ray 2400, 1800
+png boltz2_md_2QCV_guided.png, dpi=300
+
+# --- Protenix  (baseline gw0.0 -> guided gw0.1) ---
+disable boltz2_md
 enable protenix
 enable protenix_baseline
 ray 2400, 1800

@@ -150,18 +150,73 @@ def load_and_tag_path_csv(
     return tag_path_dataframe(df, filename_col, extra_renames, extra_cols)
 
 
-def load_rscc(csv_path: str) -> pd.DataFrame:
+def load_rscc(
+    csv_path: str,
+    model_name_override: str | None = None,
+) -> pd.DataFrame:
     """Load RSCC results with altloc filtering and model-name construction.
 
     Parameters
     ----------
     csv_path : str
         Path to the RSCC CSV file.
+    model_name_override : str | None
+        If given, force-set ``model_name`` to this value. Used for the
+        protenix-mini / protenix-tiny / rf3-chiral-off max-RMSD CSVs whose
+        ``model`` column reads ``"protenix"`` / ``"rf3"`` and is not otherwise
+        distinguishable. When ``None``, model_name is built from the
+        ``model``/``method`` columns and aliased.
 
     Returns
     -------
     pd.DataFrame
         RSCC DataFrame with ``model_name``, ``guidance_strength``, etc.
+    """
+    df = pd.read_csv(csv_path, dtype={"error": str}).fillna({"error": ""})
+    _occ = OCC_FILTER_ALTLOC
+    df = df.query("altloc_occupancies == @_occ").copy()
+    if model_name_override is not None:
+        df["model_name"] = model_name_override
+    else:
+        df["model_name"] = df.apply(
+            lambda x: x["model"] + x["method"] if x["model"] == "boltz2" else x["model"],
+            axis=1,
+        )
+        df["model_name"] = df["model_name"].map(lambda x: MODEL_NAME_ALIAS.get(x, x))
+    df = df[
+        [
+            "protein",
+            "model_name",
+            "ensemble_size",
+            "guidance_weight",
+            "rscc",
+            "selection",
+        ]
+    ]
+    df = add_simplified_metadata_columns(df)
+    return df
+
+
+def load_rscc_recyc_diff(csv_path: str) -> pd.DataFrame:
+    """Load the recycles/diffusion-steps grid-search RSCC CSV.
+
+    Same 50/50 altloc filter, model-name construction (``model``/``method`` aliased
+    through ``MODEL_NAME_ALIAS``), and metadata columns as :func:`load_rscc`, but
+    additionally keeps the ``n_recycles`` and ``n_diffusion_steps`` grid axes. Rows
+    with a NaN ``rscc`` are dropped with a one-line warning.
+
+    Parameters
+    ----------
+    csv_path : str
+        Path to the recycles/diffusion grid-search RSCC CSV
+        (e.g. ``rscc_results_5mhx_recyc_diff.csv``).
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: ``protein``, ``model_name``, ``ensemble_size``, ``guidance_weight``,
+        ``n_recycles``, ``n_diffusion_steps``, ``rscc``, ``selection`` plus the
+        ``selection_name`` / ``guidance_strength`` metadata columns.
     """
     df = pd.read_csv(csv_path, dtype={"error": str}).fillna({"error": ""})
     _occ = OCC_FILTER_ALTLOC
@@ -177,12 +232,58 @@ def load_rscc(csv_path: str) -> pd.DataFrame:
             "model_name",
             "ensemble_size",
             "guidance_weight",
+            "n_recycles",
+            "n_diffusion_steps",
             "rscc",
             "selection",
         ]
     ]
+    _n_before = len(df)
+    df = df[df.rscc.notna()].copy()
+    if len(df) < _n_before:
+        print(f"load_rscc_recyc_diff: dropped {_n_before - len(df)} NaN-rscc rows from {csv_path}")
     df = add_simplified_metadata_columns(df)
     return df
+
+
+# Per-model-group max-RMSD-region RSCC CSVs that together form the primary RSCC
+# frame for every non-classification figure. Each tuple is
+# ``(csv_path, model_name_override)``. protenix-mini/tiny store
+# ``model == "protenix"`` and rf3-chiral-off stores ``model == "rf3"``, so those
+# need an override to disambiguate; boltz_protenix and rf3_fixed carry a
+# distinguishable ``model`` column already. rf3-chiral-off has no max-RMSD
+# variant, so its non-max CSV is used (the only RSCC source for that model).
+RSCC_MAX_RMSD_SOURCES: list[tuple[str, str | None]] = [
+    ("results/rscc_results_max_rmsd_boltz_protenix.csv", None),
+    ("results/rscc_results_max_rmsd_rf3_fixed.csv", None),
+    ("results/rscc_results_max_rmsd_protenix_mini.csv", "protenix-mini"),
+    ("results/rscc_results_max_rmsd_protenix_tiny.csv", "protenix-tiny"),
+    ("results/rscc_results_rf3_chiral_off.csv", "rf3-chiral-off"),
+]
+
+
+def load_rscc_max_rmsd() -> pd.DataFrame:
+    """Load and concatenate the max-RMSD-region RSCC CSVs into one frame.
+
+    This is the primary RSCC source for all non-classification figures
+    (per-model + aggregated scatters, baseline distributions, the RSCC-vs-LDDT
+    cross-metric scatter, and the spiral trajectories). The by-class grid
+    instead concatenates the five base (non-max) ``results/rscc_results_*.csv``
+    inline via :func:`load_rscc` (it needs the base's full per-region selection
+    coverage; all four conformational classes, incl. domain-shift, flow through
+    one containment merge).
+
+    Each source CSV is loaded through :func:`load_rscc` (same 50/50 filter,
+    model-name construction, and metadata columns), with a
+    ``model_name_override`` where the raw ``model`` column is ambiguous
+    (see :data:`RSCC_MAX_RMSD_SOURCES`). Output contract matches
+    :func:`load_rscc`.
+    """
+    frames = [
+        load_rscc(path, model_name_override=override)
+        for path, override in RSCC_MAX_RMSD_SOURCES
+    ]
+    return pd.concat(frames, ignore_index=True)
 
 
 def load_min_altloc_rmsd(
@@ -253,16 +354,16 @@ def load_min_altloc_rmsd(
 
 
 def get_rscc_nan_proteins(
-    csv_path: str = "initial40results/rscc_results.csv",
     models: tuple[str, ...] = ("boltz2X-RAY", "boltz2MD", "protenix"),
 ) -> set[str]:
     """Return proteins with at least one NaN ``rscc`` value for the given models.
 
     Used by the notebooks' "Exclude NaN-RSCC proteins" toggle to produce a
-    consistent cross-notebook blacklist. Reuses ``load_rscc`` so the occupancy
-    filter and ``MODEL_NAME_ALIAS`` pass stay in sync.
+    consistent cross-notebook blacklist. Derives from
+    :func:`load_rscc_max_rmsd` (the primary plotting frame) so the blacklist
+    matches the data actually shown.
     """
-    df = load_rscc(csv_path)
+    df = load_rscc_max_rmsd()
     mask = df["model_name"].isin(models) & df["rscc"].isna()
     return set(df.loc[mask, "protein"].unique())
 
@@ -321,13 +422,22 @@ def _parse_min_map_occupancy(s) -> float:
     return float(min(nums))
 
 
-def load_lddt(csv_path: str) -> pd.DataFrame:
+def load_lddt(
+    csv_path: str,
+    model_name_override: str | None = None,
+) -> pd.DataFrame:
     """Load LDDT results with graceful missing-file fallback.
 
     Parameters
     ----------
     csv_path : str
         Path to the LDDT CSV file.
+    model_name_override : str | None
+        If given, force-set ``model_name`` to this value. Used for the
+        per-model LDDT concat to disambiguate ``protenix-mini`` /
+        ``protenix-tiny`` (raw ``model == "protenix"``) and ``rf3-chiral-off``
+        (raw ``model == "rf3"``), mirroring :func:`load_rscc`. When ``None``,
+        model_name is built from the ``model``/``method`` columns and aliased.
 
     Returns
     -------
@@ -352,11 +462,14 @@ def load_lddt(csv_path: str) -> pd.DataFrame:
     df = pd.read_csv(csv_path, dtype={"error": str}).fillna({"error": ""})
     _occ = OCC_FILTER_ALTLOC
     df = df.query("altloc_occupancies == @_occ").copy()
-    df["model_name"] = df.apply(
-        lambda x: x["model"] + x["method"] if x["model"] == "boltz2" else x["model"],
-        axis=1,
-    )
-    df["model_name"] = df["model_name"].map(lambda x: MODEL_NAME_ALIAS.get(x, x))
+    if model_name_override is not None:
+        df["model_name"] = model_name_override
+    else:
+        df["model_name"] = df.apply(
+            lambda x: x["model"] + x["method"] if x["model"] == "boltz2" else x["model"],
+            axis=1,
+        )
+        df["model_name"] = df["model_name"].map(lambda x: MODEL_NAME_ALIAS.get(x, x))
     df["min_predicted_occupancy"] = df["occupancies"].map(_parse_min_predicted_occupancy)
     df["min_map_occupancy"] = df["altloc_occupancies"].map(_parse_min_map_occupancy)
     df["clustering_score"] = (
@@ -373,8 +486,8 @@ def load_classification(csv_path: str) -> pd.DataFrame:
     Parameters
     ----------
     csv_path : str
-        Path to a classification CSV (e.g. ``classify_altloc_regions.csv`` or
-        ``small-altlocs-classified-rmsd.csv``).
+        Path to a classification CSV (the ``CLASSIFICATION_CSV`` constant,
+        i.e. ``results/classify_altloc_regions.csv``).
 
     Returns
     -------
@@ -452,7 +565,7 @@ def merge_classification_by_containment(
 
 
 def load_deposition_cutoffs(
-    path: str = "initial40results/Sampleworks_initial_structures.csv",
+    path: str = "results/Sampleworks_initial_structures.csv",
 ) -> pd.DataFrame:
     """Load per-protein deposition dates and pre/post-cutoff classification.
 
@@ -490,7 +603,7 @@ def load_deposition_cutoffs(
 
 
 def load_training_cluster_counts(
-    path: str = "lddt_assignment_counts.csv",
+    path: str = "results/lddt_assignment_counts.csv",
 ) -> pd.DataFrame:
     """Load per-selection pre-cutoff training-cluster counts.
 

@@ -6,7 +6,7 @@ Guidance for Claude Code (claude.ai/code) working in this repository.
 
 Analysis codebase for a structural biology paper evaluating AI protein structure prediction models (Boltz2, Protenix, RoseTTAFold3 variants) on alternate conformations with experimental density guidance. Compares model outputs against ground-truth crystallographic data across RSCC, lDDT, clashscores, bond geometry, and minimum RMSD to each altloc.
 
-The analysis is two marimo notebooks (`02_fit_quality.py`, `03_tradeoffs.py`) on top of eight flat pure-Python modules. Figures save as SVG into `figures/`.
+The analysis is three marimo notebooks (`02_fit_quality.py`, `03_tradeoffs.py`, `04_recycles_steps_ensembles.py`) on top of eight flat pure-Python modules. Figures save as SVG into `figures/`.
 
 ## Commands
 
@@ -14,7 +14,6 @@ The analysis is two marimo notebooks (`02_fit_quality.py`, `03_tradeoffs.py`) on
 uv sync                                # install
 uv run marimo edit 02_fit_quality.py   # primary workflow (interactive)
 uv run marimo run  02_fit_quality.py   # headless render (slow — usually overkill)
-uv run python merge_new_rscc_lddt.py   # one-off data integration scripts only
 ```
 
 Notebooks **must** be invoked via marimo, not `python file.py` — they are `marimo.App`s of `@app.cell` functions, not scripts.
@@ -26,7 +25,7 @@ Each module imports only from those above it; no cycles.
 | Module | Role | Most-used surface |
 |---|---|---|
 | `style.py` | rcParams, palettes, constants, save helpers | `MODEL_PALETTE`, `MODEL_DISPLAY`, `MODEL_NAME_ALIAS`, `MODELS_ALT`, `OCC_FILTER[_ALTLOC]`, `OPTIMAL_GW`, `GW_TO_STRENGTH`, `save_fig`, `save_per_model_figures`, `save_model_legend` |
-| `loaders.py` | CSV → tidy DataFrame | `load_rscc`, `load_lddt`, `load_min_altloc_rmsd`, `load_classification`, `merge_classification_by_containment`, `load_training_cluster_counts`, `load_deposition_cutoffs`, `get_rscc_nan_proteins`, `add_simplified_metadata_columns` |
+| `loaders.py` | CSV → tidy DataFrame | `load_rscc`, `load_rscc_max_rmsd`, `load_rscc_recyc_diff`, `load_lddt`, `load_min_altloc_rmsd`, `load_classification`, `merge_classification_by_containment`, `load_training_cluster_counts`, `load_deposition_cutoffs`, `get_rscc_nan_proteins`, `add_simplified_metadata_columns` |
 | `transforms.py` | DataFrame → DataFrame (pure) | `make_delta_frame`, `build_training_bias_df`, `filter_by_model_group`, `format_residue_range`, `model_slug` |
 | `plot_distributions.py` | Baseline KDE/ECDF | `make_combined_baseline_distributions` |
 | `plot_scatter.py` | Scatter family | `make_scatter_comparison`, `make_rscc_scatter`, `make_aggregated_scatter`, `make_min_rmsd_scatter` |
@@ -38,32 +37,36 @@ Read module docstrings for full APIs and design notes. **`data_in_each_plot.md` 
 
 ## Data Sources
 
-| Path | Contents |
-|---|---|
-| `initial40results/rscc_results.csv` | RSCC for main models, all 50/50 occupancies, all gws (per altloc-region) |
-| `initial40results/rscc_results_domain_shift.csv` | Whole-domain RSCC for the domain-shift class only (clean extract from legacy `.bak`; `rf3-old` excluded) |
-| `initial40results/lddt_results.csv` | lDDT silhouette + predicted occupancies (loader derives `clustering_score = min(predicted_occ) * avg_silhouette_to_ref / min(map_occ)`) |
-| `initial40results/Sampleworks_initial_structures.csv` | Per-protein deposition date + Pre/Post cutoff flag |
-| `initial40results/{clashscore_metrics,bond_*_violation_fractions}.csv` | Geometry metrics for the spiral figures |
-| `min_altloc_rmsd_results_{boltz_protenix,protenix_mini,protenix_tiny,rf3_fixed}.csv` | Per-(protein, model, gw, selection) minimum RMSD across the 8-member ensemble to each altloc — loaded one-CSV-per-call by `load_min_altloc_rmsd` and concatenated in the notebook |
-| `lddt_assignment_counts.csv` | Pre-cutoff PDB cluster members assigned to altloc A vs B by lDDT |
-| `small-altlocs-classified-rmsd.csv` | Conformational-change classification per (protein, selection) |
+All figure inputs live in **`results/`** (the old top-level + `initial40results/` CSVs are gone). The four formerly-monolithic sources (LDDT, base RSCC, clashscore, bond-violations) are now **five per-model-group files each, concatenated in-memory inline in the notebook cells** with hardcoded `results/…` paths — there is no central `RESULTS_DIR` constant and no `load_*_all()` helper.
 
-`merge_combined_into_initial.py` and `merge_new_rscc_lddt.py` are one-shot integration scripts, not part of the analysis loop.
+| Path (all under `results/`) | Contents |
+|---|---|
+| `rscc_results_max_rmsd_{boltz_protenix,rf3_fixed,protenix_mini,protenix_tiny}.csv` + `rscc_results_rf3_chiral_off.csv` | **Primary RSCC source for all non-classification figures** (max-RMSD altloc region). Concatenated in-memory by `load_rscc_max_rmsd` (paths in `RSCC_MAX_RMSD_SOURCES`); covers boltz2 MD/XRAY, protenix, rf3, protenix-mini/-tiny, rf3-chiral-off (last from its non-max CSV — no max-RMSD variant exists). Sparser gw sweep than base (boltz2/protenix 6 gws; rf3 7 gws). Also backs `get_rscc_nan_proteins` |
+| `rscc_results_{boltz_protenix,rf3_fixed,protenix_mini,protenix_tiny,rf3_chiral_off}.csv` | Base per-altloc-region RSCC (all 10 gws). **Used only for the by-class / conformational-class grid** — concatenated inline in the nb-02 by-class cell via `load_rscc` (mini/-tiny/chiral-off via `model_name_override`), then region-containment classification. The lone domain-shift region (`2e7z`) is folded in from this same concat — no separate domain-shift CSV |
+| `lddt_results_{boltz_protenix,rf3_fixed,protenix_mini,protenix_tiny,rf3_chiral_off}.csv` | lDDT silhouette + predicted occupancies. **Concatenated inline** in nb 02 + 03 via `load_lddt(..., model_name_override=…)` (mini/-tiny/chiral-off disambiguated); loader derives `clustering_score = min(predicted_occ) * avg_silhouette_to_ref / min(map_occ)` |
+| `Sampleworks_initial_structures.csv` | Per-protein deposition date + Pre/Post cutoff flag (`load_deposition_cutoffs` default) |
+| `{clashscore_metrics,bond_angle_violation_fractions,bond_length_violation_fractions}_{boltz_protenix,rf3_fixed,protenix_mini,protenix_tiny,rf3_chiral_off}.csv` | Geometry metrics for the spiral figures. **Concatenated inline** in nb 03; the path-tagged variant files (mini/-tiny/chiral-off) get a post-tag `model_name` override because their raw run-dir collapses to `protenix_X-RAY_DIFFRACTION` / `rf3_X-RAY_DIFFRACTION` (see Conventions) |
+| `min_altloc_rmsd_results_{boltz_protenix,protenix_mini,protenix_tiny,rf3_fixed}.csv` | Per-(protein, model, gw, selection) minimum RMSD across the 8-member ensemble to each altloc — loaded one-CSV-per-call by `load_min_altloc_rmsd` and concatenated in nb 02 (no rf3-chiral-off CSV — that model is absent from min-RMSD figures) |
+| `lddt_assignment_counts.csv` | Pre-cutoff PDB cluster members assigned to altloc A vs B by lDDT (`load_training_cluster_counts` default) |
+| `rscc_results_5mhx_recyc_diff.csv` | **5MHX-only** recycles × diffusion-steps grid-search RSCC (recycles `{1,3,10}` × steps `{50,100,200,400}`, four main models, optimal gw). Loaded by `load_rscc_recyc_diff` (keeps `n_recycles`/`n_diffusion_steps`); backs nb 04 only |
+| `rscc_results_6b8x_ensemble_size.csv` | **6B8X-only** ensemble-size sweep RSCC (sizes `{1,2,4,8,16}`, four main models, optimal gw, 32 selections). Loaded via plain `load_rscc` (it already keeps `ensemble_size`); single-source (every model already at its optimal gw, no default-point merge); backs nb 04 only |
+| `classify_altloc_regions.csv` | Conformational-change classification per (protein, selection) by backbone lDDT (`side_chain_only` / `small_loop` / `large_loop` / `domain_shift`). Loaded via `load_classification(CLASSIFICATION_CSV)`; the single swap-point constant `CLASSIFICATION_CSV` lives in `style.py`. Replaced the retired `small-altlocs-classified-rmsd.csv` |
+
+There are no on-disk merge scripts (the legacy `merge_combined_into_initial.py` / `merge_new_rscc_lddt.py` were removed). **Present but intentionally unplotted:** `results/bond_{length,angle}_outliers_*.csv` and `results/max_rmsd_within_rmsd_*.csv` have no loader/figure yet (`results/rscc_results_6b8x_ensemble_size.csv` is now wired into nb 04 — see its row above). `results/boltz2_msa_depth.tsv~` is kept at the user's request — never delete it during cleanup.
 
 ## Conventions That Bite
 
 - **50/50 occupancy only.** Every loader filters to `OCC_FILTER == "0.5occA_0.5occB"` (or `OCC_FILTER_ALTLOC == "{'A': 0.5, 'B': 0.5}"`). Other splits never reach any figure.
 - **Model name aliasing.** Raw CSV names go through `MODEL_NAME_ALIAS` (e.g. `boltz2_X-RAY_DIFFRACTION → boltz2X-RAY`, `rf3-fixed → rf3`). Always work with the canonical form downstream and look it up via `MODEL_DISPLAY[name]` for figure titles.
-- **Disambiguating shared `model` columns.** When several CSVs store the same raw `model` value, two patterns coexist:
-  - **At merge time** — `merge_new_rscc_lddt.py` rewrites `model` to a canonical name (e.g. `"rf3-chiral-off"`). Use this for new merge scripts.
-  - **At load time** — `load_min_altloc_rmsd(csv_path, model_name_override="protenix-mini")` because both protenix-mini and protenix-tiny CSVs store `model == "protenix"`. Use this for ad-hoc per-source loads where the merge step is skipped.
-- **Model groups.** `MODELS_ALT = {"protenix-mini", "protenix-tiny", "rf3-chiral-off"}` are the alternative variants. `filter_by_model_group(df, "main")` drops them; aggregated figures are main-models-only by convention.
+- **RSCC source split.** `load_rscc_max_rmsd` (the max-RMSD-region CSVs) is the primary RSCC frame for every figure *except* the by-class grid, which concatenates the five **base** (non-max) `results/rscc_results_*.csv` inline (it needs the base's full per-region selection coverage). All four conformational classes — including the lone `domain_shift` region (`2e7z`, ~44 region rows across the 7 models) — now flow through **one** `merge_classification_by_containment` path; the old `rscc_results_domain_shift.csv` whole-domain source is retired. The max-RMSD CSVs have a sparser gw sweep than base (boltz2/protenix lack `0.005–0.035`; rf3 lacks `0.2–0.5`), so the rf3 spiral shows only its low-gw arm.
+- **Disambiguating shared `model` columns.** Several CSVs store the same raw `model` value — both protenix-mini and protenix-tiny CSVs store `model == "protenix"`, and the rf3 / rf3-chiral-off CSVs store `model == "rf3"`. Disambiguate **at load time** with the `model_name_override` arg: `load_rscc(...)`, `load_lddt(...)`, `load_min_altloc_rmsd(...)` all take it. `load_rscc_max_rmsd` applies the per-source overrides from `RSCC_MAX_RMSD_SOURCES` (in `loaders.py`). **The path-tagged geometry files are a separate trap:** `load_and_tag_path_csv` / `tag_path_dataframe` extract `model_name` from the raw run-dir, which is `protenix_X-RAY_DIFFRACTION` for **both** mini and tiny and `rf3_X-RAY_DIFFRACTION` for chiral-off — so the clashscore/bond concats in nb 03 set `model_name` **after** tagging (mini/-tiny/chiral-off), or mini+tiny silently merge into one model.
+- **Model groups + the dropdown.** `MODELS_ALT = {"protenix-mini", "protenix-tiny", "rf3-chiral-off"}` are the alternative variants. `MODELS_PROTENIX_GROUP` / `MODELS_RF3_GROUP` define the two variant families. The `model_group` dropdown (Main / Protenix variants / RF3 variants) lives in both nb 02 and nb 03 and drives **only the per-model-colored figures**: baseline distributions + by-class grid (02), the Figure-20 overlay spiral + the training-bias suite (03). `filter_by_model_group(df, group)` returns `(filtered_df, suffix)`; non-main saves get the `_protenix_alts` / `_rf3_alts` suffix so they never overwrite Main outputs. The **median-aggregated scatters, printed summary tables, per-model spirals, and nb 04** stay main-models-only / per-`selected_model` and ignore the group dropdown.
 - **Guidance buckets.** `GW_TO_STRENGTH` maps numeric gw → `{baseline, weak, medium, strong}`. `OPTIMAL_GW[model]` is the per-model "best" gw used by every "optimal vs baseline" figure (`0.1` for the three main models, `0.01` for RF3).
 - **Pinned cross-figure highlights.** `6B8X 181-183` and `5MHX 162-164` are circled in blue (`#1565C0`) on every aggregated scatter (RSCC, LDDT, min-RMSD). Pin new always-circled selections in the same color so they read as the same family across figures.
 - **`exclude_nan_rscc` toggle.** When on, the notebook blacklists proteins with any NaN RSCC across the four main models (via `get_rscc_nan_proteins`) and threads the blacklist through every loader output. Don't bypass it.
-- **Pre-cutoff training cluster source.** `load_training_cluster_counts("lddt_assignment_counts.csv")` adds `frac_a_cluster` / `x_one_minus_fa`. `load_deposition_cutoffs(...)` auto-fills `1VME, 4OLE, 5SOP, 6B8X` (pre-2018, absent from the CSV) as Pre.
-- **Pandas + polars split.** Analysis code is pandas; only the one-shot merge scripts use polars.
+- **Pre-cutoff training cluster source.** `load_training_cluster_counts()` (default `results/lddt_assignment_counts.csv`) adds `frac_a_cluster` / `x_one_minus_fa`. `load_deposition_cutoffs()` (default `results/Sampleworks_initial_structures.csv`) auto-fills `1VME, 4OLE, 5SOP, 6B8X` (pre-2018, absent from the CSV) as Pre.
+- **Training-bias grids size to the group.** The `make_training_bias_*` helpers take `model_order` and build their subplot grid with `n_cols = len(model_order)` (4 main, 3 protenix, 2 rf3) — width scales so the 4-model case is byte-identical. `make_training_bias_calibration_explainer` (Fig 36) has no data/models and is group-independent.
+- **All pandas.** Analysis code is pandas throughout (the removed merge scripts were the only polars users).
 
 ## Marimo Gotchas
 
@@ -84,7 +87,16 @@ The dominant pattern is **per-model figure + aggregated companion**, used by RSC
    - **Aggregated cell:** restrict to `model_name not in MODELS_ALT`, group by `(protein, selection, label)`, take median, drop `n < 3`, save under a metric-specific subdirectory of `figures/`.
 4. **Document it:** add a row to the figure-catalog table in the notebook's intro cell, and a new section in `data_in_each_plot.md` (data sources, filters, what's included / excluded).
 
-For non-scatter families look at the existing implementations: `make_by_class_combined_grid` (4×4 grid with a two-source merge for the domain-shift column), `make_spiral_figure` / `make_aggregated_spiral_figure` (trajectories through guidance space), and the `make_training_bias_*` family (figures 29–36, fully documented in `data_in_each_plot.md`).
+For non-scatter families look at the existing implementations: `make_by_class_combined_grid` (models × 4-class grid from a single per-region concat, sized by `model_order`), `make_spiral_figure` / `make_aggregated_spiral_figure` (trajectories through guidance space; the aggregated one is group-aware), and the `make_training_bias_*` family (figures 29–36, group-aware grids, fully documented in `data_in_each_plot.md`).
+
+## Summary Tables & Shared Frames (`02_fit_quality.py`)
+
+Beyond the figures, the notebook ends with a block of **printed summary tables** (rendered as marimo tables, no saved output) comparing baseline vs each model's optimal gw at the per-(protein, selection, model) level. They sit on shared infrastructure introduced to kill duplication — reuse it instead of re-deriving:
+
+- **Helpers cell** (top of the notebook): `optimal_gw_df` (the `OPTIMAL_GW` frame to merge on), `baseline_vs_optimal(region, value_cols)` (pairs each metric's `gw == 0.0` value with its optimal-gw value → `<col>_baseline` / `<col>_optimal`), `add_label(df)` (the `"<PDB> <range>"` label column), `per_model_counts(df)` (the `"Model: n; …"` summary string).
+- **Two delta frames**, each per (protein, selection, model): `rscc_scatter_df` (RSCC; also feeds the RSCC scatters) and `cs_scatter_df` (`clustering_score` + `avg_silhouette_to_ref` + `min_predicted_occupancy`, each baseline/optimal, plus `delta_clustering_score`). `rscc_cs_delta_df` is their inner join (RSCC ∩ clustering coverage); the trade-off / collapse / reverse tables filter it.
+- **Column names follow `baseline_vs_optimal`'s scheme** (`<metric>_baseline` / `<metric>_optimal`, e.g. `clustering_score_optimal`, `min_rmsd_to_A_optimal`) — longer but self-describing.
+- The tables themselves (threshold fractions, single-residue enrichment, RSCC↔clustering trade-offs + collapse, RSCC vs min-RMSD) are documented in `data_in_each_plot.md`.
 
 ## Validation
 

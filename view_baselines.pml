@@ -1,19 +1,63 @@
 # Load baseline predictions for 6B8X and 2A26, aligned to ground truth
 
+# ---------------------------------------------------------------
+# Alt-loc cartoon fix (non-rebond default for PyMOL < 3.2)
+# These crystallographic ground-truth inputs encode the blank alt-id as a
+# quoted space (' ') instead of the mmCIF null (.). PyMOL only forms a
+# blank<->A/B bond when the blank alt is the empty string, so every blank<->A/B
+# backbone peptide bond is dropped at load and the cartoon shatters into
+# fragments at alt-loc residues. The cartoon spline is cached from load-time
+# connectivity, so a post-load bond cannot repair it - the file is fixed
+# BEFORE load. load_altfix rewrites ONLY the label_alt_id column (quoted-space
+# to dot) in memory, then loads, so blank<->A/B bonds form at load.
+# PyMOL 3.2+ alternative (drop this block) is plain load, then
+#   alter obj, alt=alt.strip()
+#   rebond obj
+# ---------------------------------------------------------------
+python
+def _altfix_text(txt):
+    L = txt.split("\n")
+    cols = [l.strip() for l in L if l.strip().startswith("_atom_site.")]
+    if "_atom_site.label_alt_id" not in cols:
+        return txt
+    ai = cols.index("_atom_site.label_alt_id")
+    def fix(line):
+        i, n, k = 0, len(line), 0
+        while i < n:
+            while i < n and line[i] in " \t":
+                i += 1
+            if i >= n:
+                break
+            s = i
+            if line[i] in "'\"":
+                q = line[i]; i += 1
+                while i < n and not (line[i] == q and (i + 1 >= n or line[i + 1] in " \t")):
+                    i += 1
+                i += 1; v = line[s + 1:i - 1]
+            else:
+                while i < n and line[i] not in " \t":
+                    i += 1
+                v = line[s:i]
+            if k == ai:
+                return (line[:s] + "." + line[i:]) if v.strip() == "" else line
+            k += 1
+        return line
+    return "\n".join(fix(l) if (l[:4] == "ATOM" or l[:6] == "HETATM") else l for l in L)
+def load_altfix(filename, oname):
+    with open(filename) as _fh:
+        cmd.load_raw(_altfix_text(_fh.read()), "cif", oname.strip())
+cmd.extend("load_altfix", load_altfix)
+python end
+
 # ============================================================
 # Ground truth
 # ============================================================
-load ../../../processed/6B8X/6B8X_single_001_density_input.cif, 6B8X_gt
+load_altfix ../../../processed/6B8X/6B8X_single_001_density_input.cif, 6B8X_gt
 color good_gray, 6B8X_gt
 util.cnc 6B8X_gt
 show cartoon, 6B8X_gt
 
-load ../../../processed/2A26/2A26_single_001_density_input.cif, 2A26_gt
-# Fix altloc-induced chain breaks: resi 12(' ')-13(A/B) and resi 20(A/B)-21(' ')
-bond 2A26_gt and resi 12 and name C and not alt B, 2A26_gt and resi 13 and name N and alt A
-bond 2A26_gt and resi 12 and name C and not alt A, 2A26_gt and resi 13 and name N and alt B
-bond 2A26_gt and resi 20 and name C and alt A, 2A26_gt and resi 21 and name N and not alt B
-bond 2A26_gt and resi 20 and name C and alt B, 2A26_gt and resi 21 and name N and not alt A
+load_altfix ../../../processed/2A26/2A26_single_001_density_input.cif, 2A26_gt
 color good_gray, 2A26_gt
 util.cnc 2A26_gt
 show cartoon, 2A26_gt
@@ -383,7 +427,7 @@ set ray_shadow, 0
 # Black outlines on opaque GT via ray_trace_mode 1 (BLOPIG method)
 # Transparent baselines will NOT get outlines in this mode
 set ray_trace_mode, 1
-set ray_trace_gain, 0.1
+set ray_trace_gain, 1.5
 set antialias, 2
 set cartoon_gap_cutoff, 3
 

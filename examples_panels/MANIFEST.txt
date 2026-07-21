@@ -1,0 +1,35 @@
+# examples_panels - inputs for examples_panel.pml
+# 3 structures (6B8X, 5MHX, 5SOP) x 4 main models, baseline gw0.0 vs guided optimal gw
+# refined-patched ens8 CIFs + density input from: /Users/kyroyo/astera/diffuse/diffuse-shared/raw/sampleworks
+# experimental .ccp4 maps from: /Users/kyroyo/Downloads/initial_dataset_40/outputs/initial_dataset_40/baseline
+# dest_filename  <-  source
+6B8X_gt.cif                     <-  initial_dataset_40_occ_sweeps/processed/6B8X/6B8X_single_001_density_input.cif
+6B8X_map.ccp4                   <-  (local baseline) 6B8X_0.5occA_0.5occB_1.00A.ccp4
+6B8X_boltz2XRAY_gw0p0.cif       <-  occ_sweep_results/6B8X_0.5occA_0.5occB/boltz2_X-RAY_DIFFRACTION/.../ens8_gw0.0/refined-patched.cif
+6B8X_boltz2XRAY_gw0p1.cif       <-  occ_sweep_results/6B8X_0.5occA_0.5occB/boltz2_X-RAY_DIFFRACTION/.../ens8_gw0.1/refined-patched.cif
+6B8X_boltz2MD_gw0p0.cif         <-  occ_sweep_results/6B8X_0.5occA_0.5occB/boltz2_MD/.../ens8_gw0.0/refined-patched.cif
+6B8X_boltz2MD_gw0p1.cif         <-  occ_sweep_results/6B8X_0.5occA_0.5occB/boltz2_MD/.../ens8_gw0.1/refined-patched.cif
+6B8X_protenix_gw0p0.cif         <-  occ_sweep_results/6B8X_0.5occA_0.5occB/protenix/.../ens8_gw0.0/refined-patched.cif
+6B8X_protenix_gw0p1.cif         <-  occ_sweep_results/6B8X_0.5occA_0.5occB/protenix/.../ens8_gw0.1/refined-patched.cif
+6B8X_rf3_gw0p0.cif              <-  occ_sweep_results_rf3_fixed/6B8X_0.5occA_0.5occB/rf3/.../ens8_gw0.0/refined-patched.cif
+6B8X_rf3_gw0p01.cif             <-  occ_sweep_results_rf3_fixed/6B8X_0.5occA_0.5occB/rf3/.../ens8_gw0.01/refined-patched.cif
+5MHX_gt.cif                     <-  initial_dataset_40_occ_sweeps/processed/5MHX/5MHX_single_001_density_input.cif
+5MHX_map.ccp4                   <-  (local baseline) 5MHX_0.5occA_0.5occB_1.00A.ccp4
+5MHX_boltz2XRAY_gw0p0.cif       <-  occ_sweep_results/5MHX_0.5occA_0.5occB/boltz2_X-RAY_DIFFRACTION/.../ens8_gw0.0/refined-patched.cif
+5MHX_boltz2XRAY_gw0p1.cif       <-  occ_sweep_results/5MHX_0.5occA_0.5occB/boltz2_X-RAY_DIFFRACTION/.../ens8_gw0.1/refined-patched.cif
+5MHX_boltz2MD_gw0p0.cif         <-  occ_sweep_results/5MHX_0.5occA_0.5occB/boltz2_MD/.../ens8_gw0.0/refined-patched.cif
+5MHX_boltz2MD_gw0p1.cif         <-  occ_sweep_results/5MHX_0.5occA_0.5occB/boltz2_MD/.../ens8_gw0.1/refined-patched.cif
+5MHX_protenix_gw0p0.cif         <-  occ_sweep_results/5MHX_0.5occA_0.5occB/protenix/.../ens8_gw0.0/refined-patched.cif
+5MHX_protenix_gw0p1.cif         <-  occ_sweep_results/5MHX_0.5occA_0.5occB/protenix/.../ens8_gw0.1/refined-patched.cif
+5MHX_rf3_gw0p0.cif              <-  occ_sweep_results_rf3_fixed/5MHX_0.5occA_0.5occB/rf3/.../ens8_gw0.0/refined-patched.cif
+5MHX_rf3_gw0p01.cif             <-  occ_sweep_results_rf3_fixed/5MHX_0.5occA_0.5occB/rf3/.../ens8_gw0.01/refined-patched.cif
+5SOP_gt.cif                     <-  initial_dataset_40_occ_sweeps/processed/5SOP/5SOP_single_001_density_input.cif
+5SOP_map.ccp4                   <-  (local baseline) 5SOP_0.5occA_0.5occB_1.00A.ccp4
+5SOP_boltz2XRAY_gw0p0.cif       <-  occ_sweep_results/5SOP_0.5occA_0.5occB/boltz2_X-RAY_DIFFRACTION/.../ens8_gw0.0/refined-patched.cif
+5SOP_boltz2XRAY_gw0p1.cif       <-  occ_sweep_results/5SOP_0.5occA_0.5occB/boltz2_X-RAY_DIFFRACTION/.../ens8_gw0.1/refined-patched.cif
+5SOP_boltz2MD_gw0p0.cif         <-  occ_sweep_results/5SOP_0.5occA_0.5occB/boltz2_MD/.../ens8_gw0.0/refined-patched.cif
+5SOP_boltz2MD_gw0p1.cif         <-  occ_sweep_results/5SOP_0.5occA_0.5occB/boltz2_MD/.../ens8_gw0.1/refined-patched.cif
+5SOP_protenix_gw0p0.cif         <-  occ_sweep_results/5SOP_0.5occA_0.5occB/protenix/.../ens8_gw0.0/refined-patched.cif
+5SOP_protenix_gw0p1.cif         <-  occ_sweep_results/5SOP_0.5occA_0.5occB/protenix/.../ens8_gw0.1/refined-patched.cif
+5SOP_rf3_gw0p0.cif              <-  occ_sweep_results_rf3_fixed/5SOP_0.5occA_0.5occB/rf3/.../ens8_gw0.0/refined-patched.cif
+5SOP_rf3_gw0p01.cif             <-  occ_sweep_results_rf3_fixed/5SOP_0.5occA_0.5occB/rf3/.../ens8_gw0.01/refined-patched.cif

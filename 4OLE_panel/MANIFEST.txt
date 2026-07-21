@@ -1,0 +1,12 @@
+# 4OLE 0.5occA_0.5occB - refined-patched ensembles + density input
+# 4 main models: boltz2-xray, boltz2-md, protenix, rf3
+# dest_filename  <-  source (relative to /Users/kyroyo/astera/diffuse/diffuse-shared/raw/sampleworks)
+4OLE_boltz2_xray_gw0p0.cif        <-  occ_sweep_results/4OLE_0.5occA_0.5occB/boltz2_X-RAY_DIFFRACTION/pure_guidance/ens8_gw0.0/refined-patched.cif
+4OLE_boltz2_xray_gw0p1.cif        <-  occ_sweep_results/4OLE_0.5occA_0.5occB/boltz2_X-RAY_DIFFRACTION/pure_guidance/ens8_gw0.1/refined-patched.cif
+4OLE_boltz2_md_gw0p0.cif          <-  occ_sweep_results/4OLE_0.5occA_0.5occB/boltz2_MD/pure_guidance/ens8_gw0.0/refined-patched.cif
+4OLE_boltz2_md_gw0p1.cif          <-  occ_sweep_results/4OLE_0.5occA_0.5occB/boltz2_MD/pure_guidance/ens8_gw0.1/refined-patched.cif
+4OLE_protenix_gw0p0.cif           <-  occ_sweep_results/4OLE_0.5occA_0.5occB/protenix/pure_guidance/ens8_gw0.0/refined-patched.cif
+4OLE_protenix_gw0p1.cif           <-  occ_sweep_results/4OLE_0.5occA_0.5occB/protenix/pure_guidance/ens8_gw0.1/refined-patched.cif
+4OLE_rf3_fixed_gw0p0.cif          <-  occ_sweep_results_rf3_fixed/4OLE_0.5occA_0.5occB/rf3/pure_guidance/ens8_gw0.0/refined-patched.cif
+4OLE_rf3_fixed_gw0p01.cif         <-  occ_sweep_results_rf3_fixed/4OLE_0.5occA_0.5occB/rf3/pure_guidance/ens8_gw0.01/refined-patched.cif
+4OLE_density_input.cif            <-  initial_dataset_40_occ_sweeps/processed/4OLE/4OLE_single_001_density_input.cif

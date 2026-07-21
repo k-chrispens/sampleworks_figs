@@ -12,6 +12,93 @@ from adjustText import adjust_text
 
 from style import MODEL_DISPLAY, MODEL_PALETTE
 
+# Curated biologically-relevant selections circled blue (#1565C0) on the
+# per-model RSCC residual panels (fig 4 panel C). Shared by make_rscc_scatter
+# and make_clustering_scatter so both metrics' panels ring the same set.
+RSCC_HIGHLIGHT_PROTEINS = [
+    "6B8X 181-183", "5MHX 162-164",
+    "5SOP 131-133", "6DUR 389-391", "2QCV 2-4", "6RP1 5",
+    "6NI5 151-153", "6NI5 201-202", "6NI5 204-206",
+    "6NI5 209-210", "6NI5 213-215",
+    "6NI6 151-153", "6NI6 201-202", "6NI6 204-206",
+    "6NI6 209-210", "6NI6 213-215",
+]
+
+
+def _group_coincident_anchors(
+    anchors: list[tuple[float, float, str]],
+    *,
+    tol: float = 1e-3,
+    max_members: int = 2,
+) -> list[tuple[float, float, str, list[str]]]:
+    """Merge label anchors that share a coordinate into one combined label.
+
+    Returns one ``(x, y, combined_label, members)`` tuple per group, where
+    ``members`` is the full list of member label strings so a caller can expand
+    each ``(+N)``.
+
+    ``anchors`` is a list of ``(x, y, label)`` tuples (already suppressed and
+    deduped, in draw order). Anchors whose ``(x, y)`` round to the same ``tol``
+    cell collapse to a single anchor at the first member's coordinate, labeled
+    ``"<first>, <second> (+N)"`` — the first ``max_members`` member labels joined
+    by ``", "`` plus a ``(+N)`` count for any remainder; a singleton keeps its
+    label unchanged. Rounding is in DATA coordinates, so the grouping is
+    independent of figure size / DPI and therefore reproducible. Anchors with a
+    non-finite ``x`` or ``y`` (e.g. a selection with NaN clustering score) are
+    dropped — they cannot be plotted. Grouping uses an insertion-ordered dict, so
+    the output order is deterministic.
+
+    Only TEXT labels are grouped; the per-point colored rings are drawn separately
+    and are unaffected.
+    """
+    groups: dict[tuple[int, int], list[tuple[float, float, str]]] = {}
+    for x, y, label in anchors:
+        if not (np.isfinite(x) and np.isfinite(y)):
+            continue
+        key = (round(x / tol), round(y / tol))
+        groups.setdefault(key, []).append((x, y, label))
+    grouped: list[tuple[float, float, str, list[str]]] = []
+    for members in groups.values():
+        x0, y0, _ = members[0]
+        labels = [m[2] for m in members]
+        if len(labels) <= max_members:
+            combined = ", ".join(labels)
+        else:
+            combined = ", ".join(labels[:max_members]) + f" (+{len(labels) - max_members})"
+        grouped.append((x0, y0, combined, labels))
+    return grouped
+
+
+def rscc_residual_label_override(
+    df: pd.DataFrame,
+    *,
+    x_col: str = "rscc_baseline",
+    y_col: str = "rscc_optimal",
+    label_col: str = "label",
+    label_top_n: int = 3,
+    label_far_from_ceiling_n: int = 5,
+) -> dict[str, list[str]]:
+    """The ``top`` / ``decreased`` / ``far`` label sets that
+    :func:`make_scatter_comparison`'s residual mode would auto-select on ``df``.
+
+    Returned as plain label-string lists so a *second* figure can be labeled with
+    the SAME per-model selections — used to make the clustering-score panels mirror
+    the per-model RSCC panels (fig 4 panel C) exactly. The ``highlight``/blue set is
+    the model-agnostic ``RSCC_HIGHLIGHT_PROTEINS`` and is passed separately, so it is
+    not included here.
+    """
+    _resid = df[y_col] - df[x_col]
+    _top = df.assign(_d=_resid).nlargest(label_top_n, "_d")
+    _top = _top[_top["_d"] > 0]
+    _dec = df[_resid < 0]
+    _far = df.assign(_b=1.0 - df[y_col]).nlargest(label_far_from_ceiling_n, "_b")
+    _far = _far[_far["_b"] > 0]
+    return {
+        "top": _top[label_col].astype(str).tolist(),
+        "decreased": _dec[label_col].astype(str).tolist(),
+        "far": _far[label_col].astype(str).tolist(),
+    }
+
 
 def make_scatter_comparison(
     df: pd.DataFrame,
@@ -38,6 +125,13 @@ def make_scatter_comparison(
     label_top_n: int = 3,
     label_bottom_n: int = 5,
     label_far_from_ceiling_n: int = 5,
+    residual_label_override: dict[str, list[str]] | None = None,
+    suppress_label_proteins: set[str] | None = None,
+    group_coincident_labels: bool = False,
+    coincident_tol: float = 1e-3,
+    coincident_max_members: int = 2,
+    adjust_seed: int | None = 0,
+    coincident_groups_out: list | None = None,
 ) -> plt.Figure:
     """Generic scatter plot comparing two metrics for a single model.
 
@@ -45,7 +139,38 @@ def make_scatter_comparison(
     ``y = 1 - x`` reference lines), four label sets (top-improved, decreased,
     far-from-ceiling, manually-highlighted), optional marginal KDE, optional
     regression line, and optional Pearson r annotation.
+
+    In residual mode, ``residual_label_override`` (``{"top","decreased","far"}``
+    label-string lists) replaces the data-driven green/red/orange selections with
+    a fixed set — used to label the clustering panels with the SAME per-model
+    selections as the RSCC panels (see :func:`rscc_residual_label_override`). The
+    blue highlight set (``highlight_proteins``) is unaffected. When ``None`` the
+    selections are computed from the data as before.
+
+    ``suppress_label_proteins`` is an optional set of upper-case PDB codes (first
+    token of the label) whose points are still ringed in their highlight color but
+    get **no text label** — an escape hatch for families better annotated by hand.
+    Rings are unaffected; only the text is skipped. Defaults to ``None``.
+
+    ``group_coincident_labels`` (default ``False``) merges labels that share a
+    coordinate into one combined ``"A, B (+N)"`` label via
+    :func:`_group_coincident_anchors` (``coincident_tol`` rounding,
+    ``coincident_max_members`` before the ``(+N)`` count) — used by the clustering
+    panels, whose selections collapse onto identical low-baseline coordinates that
+    no placement algorithm can separate. The per-point rings stay individual. When
+    merging is on, ``coincident_groups_out`` (if a list is passed) is extended with
+    one ``(x, y, members)`` entry per multi-member group, so callers can surface the
+    full membership behind each ``(+N)`` (e.g. a companion table).
+
+    Label placement always uses ``adjust_text``; it is made reproducible by seeding
+    NumPy with ``adjust_seed`` (default ``0``; pass ``None`` to skip) and using a
+    fixed ``iter_lim`` instead of a wall-clock ``time_lim``.
     """
+    _suppress = {p.upper() for p in suppress_label_proteins} if suppress_label_proteins else set()
+
+    def _suppressed(r):
+        return bool(_suppress) and str(r[label_col]).split()[0].upper() in _suppress
+
     color = MODEL_PALETTE.get(model_name, "#888888")
     display_name = MODEL_DISPLAY.get(model_name, model_name)
     if title is None:
@@ -106,43 +231,61 @@ def make_scatter_comparison(
         ax.scatter(x, y_plot, c=color, s=40, alpha=0.7, edgecolors="white", linewidths=0.5, zorder=2)
 
     texts: list = []
+    resid_anchors: list = []
 
     if residual:
         _has_label_col = label_col in df.columns
         _seen_idx: set = set()
 
-        if label_top_n > 0 and _delta_for_highlight is not None:
+        if residual_label_override is not None:
+            imp = (
+                df[df[label_col].isin(set(residual_label_override.get("top", [])))]
+                if _has_label_col else df.iloc[:0]
+            )
+        elif label_top_n > 0 and _delta_for_highlight is not None:
             imp = df.assign(_d=_delta_for_highlight).nlargest(label_top_n, "_d")
             imp = imp[imp["_d"] > 0]
-            if not imp.empty:
-                ax.scatter(
-                    imp[x_col], imp[y_col] - imp[x_col],
-                    facecolors=color, s=24, edgecolors="#2E7D32", linewidths=1.2, zorder=3,
-                )
-                if _has_label_col:
-                    for _, r in imp.iterrows():
-                        _seen_idx.add(r.name)
-                        texts.append(ax.text(
-                            r[x_col], r[y_col] - r[x_col], str(r[label_col]).upper(),
-                            color="#333333", zorder=10,
-                        ))
+        else:
+            imp = df.iloc[:0]
+        if not imp.empty:
+            ax.scatter(
+                imp[x_col], imp[y_col] - imp[x_col],
+                facecolors="none", s=80, edgecolors="#2E7D32", linewidths=1.6, zorder=3,
+            )
+            if _has_label_col:
+                for _, r in imp.iterrows():
+                    _seen_idx.add(r.name)
+                    if _suppressed(r):
+                        continue
+                    resid_anchors.append(
+                        (r[x_col], r[y_col] - r[x_col], str(r[label_col]).upper())
+                    )
 
-        if _delta_for_highlight is not None:
+        if residual_label_override is not None:
+            dec = (
+                df[df[label_col].isin(set(residual_label_override.get("decreased", [])))]
+                if _has_label_col else df.iloc[:0]
+            )
+            dec = dec.loc[~dec.index.isin(_seen_idx)]
+        elif _delta_for_highlight is not None:
             dec = df.assign(_d=_delta_for_highlight)
             dec = dec[dec["_d"] < 0]
             dec = dec.loc[~dec.index.isin(_seen_idx)]
-            if not dec.empty:
-                ax.scatter(
-                    dec[x_col], dec[y_col] - dec[x_col],
-                    facecolors=color, s=24, edgecolors="#D32F2F", linewidths=1.2, zorder=3,
-                )
-                if _has_label_col:
-                    for _, r in dec.iterrows():
-                        _seen_idx.add(r.name)
-                        texts.append(ax.text(
-                            r[x_col], r[y_col] - r[x_col], str(r[label_col]).upper(),
-                            color="#333333", zorder=10,
-                        ))
+        else:
+            dec = df.iloc[:0]
+        if not dec.empty:
+            ax.scatter(
+                dec[x_col], dec[y_col] - dec[x_col],
+                facecolors="none", s=80, edgecolors="#D32F2F", linewidths=1.6, zorder=3,
+            )
+            if _has_label_col:
+                for _, r in dec.iterrows():
+                    _seen_idx.add(r.name)
+                    if _suppressed(r):
+                        continue
+                    resid_anchors.append(
+                        (r[x_col], r[y_col] - r[x_col], str(r[label_col]).upper())
+                    )
 
         _pre_blue_seen = set(_seen_idx)
 
@@ -152,36 +295,62 @@ def make_scatter_comparison(
             if not picked.empty:
                 ax.scatter(
                     picked[x_col], picked[y_col] - picked[x_col],
-                    facecolors=color, s=24, edgecolors="#1565C0", linewidths=1.2, zorder=4,
+                    facecolors="none", s=80, edgecolors="#1565C0", linewidths=1.6, zorder=4,
                 )
                 for _, r in picked.iterrows():
                     if r.name in _seen_idx:
                         continue
                     _seen_idx.add(r.name)
-                    texts.append(ax.text(
-                        r[x_col], r[y_col] - r[x_col], str(r[label_col]).upper(),
-                        color="#333333", zorder=10,
-                    ))
+                    if _suppressed(r):
+                        continue
+                    resid_anchors.append(
+                        (r[x_col], r[y_col] - r[x_col], str(r[label_col]).upper())
+                    )
 
-        if label_far_from_ceiling_n > 0:
+        if residual_label_override is not None:
+            far = (
+                df[df[label_col].isin(set(residual_label_override.get("far", [])))]
+                if _has_label_col else df.iloc[:0]
+            )
+            far = far.loc[~far.index.isin(_pre_blue_seen)]
+            _do_far = True
+        elif label_far_from_ceiling_n > 0:
             below_dist = 1.0 - df[y_col]
             far = df.assign(_b=below_dist).nlargest(label_far_from_ceiling_n, "_b")
             far = far[far["_b"] > 0]
             far = far.loc[~far.index.isin(_pre_blue_seen)]
-            if not far.empty:
-                ax.scatter(
-                    far[x_col], far[y_col] - far[x_col],
-                    facecolors=color, s=24, edgecolors="#F57C00", linewidths=1.2, zorder=5,
+            _do_far = True
+        else:
+            _do_far = False
+        if _do_far and not far.empty:
+            ax.scatter(
+                far[x_col], far[y_col] - far[x_col],
+                facecolors="none", s=80, edgecolors="#F57C00", linewidths=1.6, zorder=5,
+            )
+            if _has_label_col:
+                for _, r in far.iterrows():
+                    if r.name in _seen_idx:
+                        continue
+                    _seen_idx.add(r.name)
+                    if _suppressed(r):
+                        continue
+                    resid_anchors.append(
+                        (r[x_col], r[y_col] - r[x_col], str(r[label_col]).upper())
+                    )
+
+        if group_coincident_labels:
+            _grouped = _group_coincident_anchors(
+                resid_anchors, tol=coincident_tol, max_members=coincident_max_members,
+            )
+            if coincident_groups_out is not None:
+                coincident_groups_out.extend(
+                    (gx, gy, members)
+                    for gx, gy, _combined, members in _grouped
+                    if len(members) > 1
                 )
-                if _has_label_col:
-                    for _, r in far.iterrows():
-                        if r.name in _seen_idx:
-                            continue
-                        _seen_idx.add(r.name)
-                        texts.append(ax.text(
-                            r[x_col], r[y_col] - r[x_col], str(r[label_col]).upper(),
-                            color="#333333", zorder=10,
-                        ))
+            resid_anchors = [(gx, gy, combined) for gx, gy, combined, _m in _grouped]
+        for _ax_x, _ax_y, _ax_lab in resid_anchors:
+            texts.append(ax.text(_ax_x, _ax_y, _ax_lab, color="#333333", zorder=10))
 
     else:
         if delta_col is not None and delta_col in df.columns:
@@ -194,7 +363,7 @@ def make_scatter_comparison(
                 if not dec.empty:
                     ax.scatter(
                         dec[x_col], dec[y_col],
-                        facecolors=color, s=60, edgecolors="#D32F2F", linewidths=1.5, zorder=3,
+                        facecolors="none", s=160, edgecolors="#D32F2F", linewidths=1.6, zorder=3,
                     )
                     for _, r in dec.iterrows():
                         texts.append(ax.text(
@@ -208,7 +377,7 @@ def make_scatter_comparison(
                 if not imp.empty:
                     ax.scatter(
                         imp[x_col], imp[y_col],
-                        facecolors=color, s=60, edgecolors="#2E7D32", linewidths=1.5, zorder=3,
+                        facecolors="none", s=160, edgecolors="#2E7D32", linewidths=1.6, zorder=3,
                     )
                     for _, r in imp.iterrows():
                         texts.append(ax.text(
@@ -222,7 +391,7 @@ def make_scatter_comparison(
             if not picked.empty:
                 ax.scatter(
                     picked[x_col], picked[y_col],
-                    facecolors=color, s=60, edgecolors="#1565C0", linewidths=1.5, zorder=4,
+                    facecolors="none", s=160, edgecolors="#1565C0", linewidths=1.6, zorder=4,
                 )
                 for _, r in picked.iterrows():
                     texts.append(ax.text(
@@ -255,8 +424,8 @@ def make_scatter_comparison(
     if show_correlation and len(_xf) >= 5:
         r_val = np.corrcoef(_xf, _yf)[0, 1]
         ax.text(
-            0.97, 0.03, f"r = {r_val:.3f}",
-            transform=ax.transAxes, ha="right", va="bottom",
+            0.03, 0.97, f"r = {r_val:.3f}",
+            transform=ax.transAxes, ha="left", va="top",
             bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#CCCCCC", alpha=0.8),
         )
 
@@ -301,6 +470,12 @@ def make_scatter_comparison(
             ax.set_ylim(_y_lo, 1.0)
 
     if texts:
+        # Deterministic placement: seed NumPy and use a fixed iter_lim (not the
+        # wall-clock time_lim, which made output vary run-to-run). The clustering
+        # panels reach this with already-merged labels (group_coincident_labels),
+        # so adjustText no longer fights a stack of points at one coordinate.
+        if adjust_seed is not None:
+            np.random.seed(adjust_seed)
         try:
             _n = len(texts)
             if _n > 15:
@@ -312,8 +487,10 @@ def make_scatter_comparison(
                     force_static=(0.8, 1.2),
                     force_explode=(0.5, 0.8),
                     ensure_inside_axes=True,
+                    prevent_crossings=True,
                     max_move=(40, 40),
-                    time_lim=10,
+                    iter_lim=400,
+                    time_lim=None,
                 )
             else:
                 adjust_text(
@@ -324,7 +501,10 @@ def make_scatter_comparison(
                     force_static=(0.5, 0.8),
                     force_explode=(0.3, 0.6),
                     ensure_inside_axes=True,
+                    prevent_crossings=True,
                     max_move=(20, 20),
+                    iter_lim=400,
+                    time_lim=None,
                 )
         except Exception as exc:
             warnings.warn(
@@ -370,14 +550,58 @@ def make_rscc_scatter(
         residual=True,
         label_top_n=3,
         label_far_from_ceiling_n=5,
-        highlight_proteins=[
-            "6B8X 181-183", "5MHX 162-164",
-            "5SOP 131-133", "6DUR 389-391", "2QCV 2-4", "6RP1 5",
-            "6NI5 151-153", "6NI5 201-202", "6NI5 204-206",
-            "6NI5 209-210", "6NI5 213-215",
-            "6NI6 151-153", "6NI6 201-202", "6NI6 204-206",
-            "6NI6 209-210", "6NI6 213-215",
-        ],
+        highlight_proteins=RSCC_HIGHLIGHT_PROTEINS,
+    )
+
+
+def make_clustering_scatter(
+    df: pd.DataFrame,
+    model_name: str,
+    optimal_gw: float,
+    residual_label_override: dict[str, list[str]] | None = None,
+    suppress_label_proteins: set[str] | None = None,
+    coincident_groups_out: list | None = None,
+) -> plt.Figure:
+    """Per-model residual plot: baseline clustering score vs improvement.
+
+    The clustering-score analog of :func:`make_rscc_scatter`. ``df`` must
+    contain a ``label`` column formatted ``"<PDB> <range>"`` as produced by
+    the clustering scatter cell in ``02_fit_quality.py``. The same curated
+    blue-ring highlight list is used as in the RSCC panel.
+
+    ``residual_label_override`` (from :func:`rscc_residual_label_override`)
+    pins the green/red/orange label sets to that model's RSCC selections so the
+    clustering panel labels the SAME selections, in the SAME colors, as the
+    per-model RSCC panel (fig 4 panel C). When ``None`` they are computed from
+    the clustering data as usual.
+
+    Coincident selections (several land on the exact same low-baseline coordinate,
+    e.g. RF3's pile at ``(0, 0)``) are automatically merged into one combined
+    ``"A, B (+N)"`` label via ``group_coincident_labels=True``; placement then uses
+    the same deterministic ``adjust_text`` as the RSCC panel. ``suppress_label_proteins``
+    stays available (default ``None``) as a manual escape hatch but is no longer
+    needed for the pile-up.
+    """
+    return make_scatter_comparison(
+        df,
+        model_name,
+        x_col="clustering_score_baseline",
+        y_col="clustering_score_optimal",
+        x_label="Baseline Clustering Score",
+        y_label="Improvement (Guided − Baseline Clustering Score)",
+        title=f"{MODEL_DISPLAY.get(model_name, model_name)}: Clustering Score Improvement Over Baseline",
+        delta_col="delta_clustering_score",
+        label_col="label",
+        show_marginal_kde=True,
+        xlim=(0.0, 1.0),
+        residual=True,
+        label_top_n=3,
+        label_far_from_ceiling_n=5,
+        highlight_proteins=RSCC_HIGHLIGHT_PROTEINS,
+        residual_label_override=residual_label_override,
+        suppress_label_proteins=suppress_label_proteins,
+        group_coincident_labels=True,
+        coincident_groups_out=coincident_groups_out,
     )
 
 
@@ -743,8 +967,8 @@ def make_aggregated_scatter(
                 imp = agg_df.loc[imp_idx]
                 ax.scatter(
                     imp[x_col], _yp(imp.index),
-                    facecolors=point_color, s=32,
-                    edgecolors="#2E7D32", linewidths=1.2, zorder=5,
+                    facecolors="none", s=80,
+                    edgecolors="#2E7D32", linewidths=1.6, zorder=5,
                 )
                 if label_col in agg_df.columns:
                     for i in imp_idx:
@@ -765,8 +989,8 @@ def make_aggregated_scatter(
             dec = agg_df.loc[dec_idx]
             ax.scatter(
                 dec[x_col], _yp(dec.index),
-                facecolors=point_color, s=32,
-                edgecolors="#D32F2F", linewidths=1.2, zorder=5,
+                facecolors="none", s=80,
+                edgecolors="#D32F2F", linewidths=1.6, zorder=5,
             )
             if label_col in agg_df.columns:
                 for i in dec_idx:
@@ -785,8 +1009,8 @@ def make_aggregated_scatter(
                 far = agg_df.loc[far_idx]
                 ax.scatter(
                     far[x_col], _yp(far.index),
-                    facecolors=point_color, s=32,
-                    edgecolors="#F57C00", linewidths=1.2, zorder=5,
+                    facecolors="none", s=80,
+                    edgecolors="#F57C00", linewidths=1.6, zorder=5,
                 )
                 if label_col in agg_df.columns:
                     for i in far_idx:
@@ -807,8 +1031,8 @@ def make_aggregated_scatter(
                 picked = agg_df.loc[picked_idx]
                 ax.scatter(
                     picked[x_col], _yp(picked.index),
-                    facecolors=point_color, s=32,
-                    edgecolors="#1565C0", linewidths=1.2, zorder=6,
+                    facecolors="none", s=80,
+                    edgecolors="#1565C0", linewidths=1.6, zorder=6,
                 )
                 for i in picked_idx:
                     if i in _seen_idx:
@@ -830,8 +1054,8 @@ def make_aggregated_scatter(
             if not dec.empty:
                 ax.scatter(
                     dec[x_col], dec[y_col],
-                    facecolors=point_color, s=70,
-                    edgecolors="#D32F2F", linewidths=1.5, zorder=5,
+                    facecolors="none", s=160,
+                    edgecolors="#D32F2F", linewidths=1.6, zorder=5,
                 )
                 for _, r in dec.iterrows():
                     texts.append(ax.text(
@@ -845,8 +1069,8 @@ def make_aggregated_scatter(
             if not imp.empty:
                 ax.scatter(
                     imp[x_col], imp[y_col],
-                    facecolors=point_color, s=70,
-                    edgecolors="#2E7D32", linewidths=1.5, zorder=5,
+                    facecolors="none", s=160,
+                    edgecolors="#2E7D32", linewidths=1.6, zorder=5,
                 )
                 for _, r in imp.iterrows():
                     texts.append(ax.text(
@@ -862,8 +1086,8 @@ def make_aggregated_scatter(
             if not picked.empty:
                 ax.scatter(
                     picked[x_col], picked[y_col],
-                    facecolors=point_color, s=70,
-                    edgecolors="#1565C0", linewidths=1.5, zorder=5,
+                    facecolors="none", s=160,
+                    edgecolors="#1565C0", linewidths=1.6, zorder=5,
                 )
                 for _, r in picked.iterrows():
                     texts.append(ax.text(

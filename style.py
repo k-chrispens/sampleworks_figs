@@ -145,6 +145,11 @@ CLASSIFICATION_DISPLAY = {
 }
 CLASSIFICATION_ORDER = ["side_chain_only", "small_loop", "large_loop", "domain_shift"]
 
+# Single swap-point for the by-class grid's classification scheme. To switch to a
+# different scheme, repoint this and (if it introduces new labels) extend
+# CLASSIFICATION_ORDER / CLASSIFICATION_PALETTE / CLASSIFICATION_DISPLAY above.
+CLASSIFICATION_CSV = "results/classify_altloc_regions.csv"
+
 MODEL_NAME_ALIAS = {
     "boltz2_X-RAY_DIFFRACTION": "boltz2X-RAY",
     "boltz2_MD": "boltz2MD",

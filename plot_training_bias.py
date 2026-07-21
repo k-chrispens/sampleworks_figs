@@ -50,11 +50,15 @@ def make_training_bias_scatter(
     s_max = float(combined["s_cluster"].max()) if not combined.empty else 1.0
     log_s_max = np.log(s_max + 1.0) if s_max > 0 else 1.0
 
+    # Columns follow the selected model group (4 main, 3 protenix, or 2 rf3);
+    # width scales so the 4-model case is unchanged (2.75 in/col).
+    n_cols = len(model_order)
     fig, axes = plt.subplots(
-        2, 4,
+        2, n_cols,
         sharex=True, sharey=True,
-        figsize=(11, 6),
+        figsize=(2.75 * n_cols, 6),
         constrained_layout=True,
+        squeeze=False,
     )
 
     row_label = {"Baseline": 0, "Optimal guidance": 1}
@@ -187,9 +191,12 @@ def make_training_bias_calibration_overlay(
     combined = pd.concat([baseline_prepared, optimal_prepared], ignore_index=True)
     s_max = float(combined["s_cluster"].max()) if not combined.empty else 1.0
 
-    fig = plt.figure(figsize=(14, 4.2))
+    # Columns follow the selected model group; width scales so the 4-model case
+    # is unchanged (3.5 in/col).
+    n_cols = len(model_order)
+    fig = plt.figure(figsize=(3.5 * n_cols, 4.2))
     outer = fig.add_gridspec(
-        1, 4, wspace=0.18,
+        1, n_cols, wspace=0.18,
         left=0.06, right=0.995, top=0.92, bottom=0.18,
     )
     rng = np.random.default_rng(seed)
@@ -262,7 +269,7 @@ def make_training_bias_calibration_overlay(
                 ax_sc.text(
                     x_anc, y_anc, f"slope = {slope:.2f}\nr = {r_val:.2f}",
                     transform=ax_sc.transAxes, ha=ha, va=va,
-                    fontsize=9, color=text_color, zorder=6,
+                    fontsize=9, fontweight="bold", color=text_color, zorder=6,
                 )
         else:
             y_text = 0.97
@@ -280,7 +287,7 @@ def make_training_bias_calibration_overlay(
                 ax_sc.text(
                     0.03, y_text, f"slope = {slope:.2f}\nr = {r_val:.2f}",
                     transform=ax_sc.transAxes, ha="left", va="top",
-                    fontsize=9, color=text_color, zorder=6,
+                    fontsize=9, fontweight="bold", color=text_color, zorder=6,
                 )
                 y_text -= 0.24
 
@@ -337,8 +344,11 @@ def make_training_bias_no_cluster_strip(
     baseline_nc = _filter_no_cluster(baseline_df)
     optimal_nc = _filter_no_cluster(optimal_df)
 
+    # Columns follow the selected model group; width scales so the 4-model case
+    # is unchanged (1.25 in/col).
+    n_cols = len(model_order)
     fig, axes = plt.subplots(
-        1, 4, figsize=(5, 2.5),
+        1, n_cols, figsize=(1.25 * n_cols, 2.5),
         sharey=True, constrained_layout=True,
     )
     rng = np.random.default_rng(seed)
@@ -423,7 +433,7 @@ def make_training_bias_one_sided_strip(
     optimal_df: pd.DataFrame,
     *,
     model_order: list[str] | None = None,
-    figsize: tuple[float, float] = (6, 2.8),
+    figsize: tuple[float, float] | None = None,
     marker_size: float = 3.0,
     jitter: float = 0.25,
 ) -> plt.Figure:
@@ -453,8 +463,13 @@ def make_training_bias_one_sided_strip(
     baseline_os = _filter_one_sided(baseline_df)
     optimal_os = _filter_one_sided(optimal_df)
 
+    # Columns follow the selected model group; width scales so the 4-model case
+    # is unchanged (1.5 in/col).
+    n_cols = len(model_order)
+    if figsize is None:
+        figsize = (1.5 * n_cols, 2.8)
     fig, axes = plt.subplots(
-        1, 4, figsize=figsize,
+        1, n_cols, figsize=figsize,
         sharey=True, constrained_layout=True,
     )
 
@@ -579,8 +594,11 @@ def make_training_bias_small_multiples_v2(
     combined = pd.concat([baseline_prepared, optimal_prepared], ignore_index=True)
     s_max = float(combined["s_cluster"].max()) if not combined.empty else 1.0
 
-    fig = plt.figure(figsize=(13, 7), constrained_layout=True)
-    outer = fig.add_gridspec(2, 4, wspace=0.25, hspace=0.18)
+    # Columns follow the selected model group; width scales so the 4-model case
+    # is unchanged (3.25 in/col).
+    n_cols = len(model_order)
+    fig = plt.figure(figsize=(3.25 * n_cols, 7), constrained_layout=True)
+    outer = fig.add_gridspec(2, n_cols, wspace=0.25, hspace=0.18)
     rng = np.random.default_rng(seed)
     hist_bins = np.linspace(0.0, 1.0, 21)
 
@@ -588,7 +606,7 @@ def make_training_bias_small_multiples_v2(
         (0, "Baseline", baseline_prepared),
         (1, "Optimal guidance", optimal_prepared),
     ]
-    axes_scatter: list[list[plt.Axes | None]] = [[None] * 4, [None] * 4]
+    axes_scatter: list[list[plt.Axes | None]] = [[None] * n_cols, [None] * n_cols]
 
     for row, _condition_label, prepared_frame in rows:
         for col, model_name in enumerate(model_order):
@@ -639,7 +657,7 @@ def make_training_bias_small_multiples_v2(
                     ax_sc.text(
                         0.03, 0.97, f"slope = {slope:.2f}\nr = {r_val:.2f}",
                         transform=ax_sc.transAxes, ha="left", va="top",
-                        fontsize=9, zorder=6,
+                        fontsize=9, fontweight="bold", zorder=6,
                     )
 
             ax_sc.set_xlim(-0.02, 1.02)
