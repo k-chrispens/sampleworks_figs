@@ -1,0 +1,85 @@
+{
+  "snapshot_sha256": "2bdc602305b5bbab8bb5cdc88866482655a1bf532492015156016ff25330b7d6",
+  "source_files": [
+    {
+      "file": "rscc_results_max_rmsd_boltz_protenix.csv",
+      "sha256": "6277bc8f2b3101217c7a1955736ec373332e5bc0cc4d3409437e6d1c5ab7d185",
+      "model_override": null
+    },
+    {
+      "file": "lddt_results_boltz_protenix.csv",
+      "sha256": "9b44fb470ef149287d3d2b968588e229f8af7c487cdad08166cc5525769a01f0",
+      "model_override": null
+    },
+    {
+      "file": "rscc_results_max_rmsd_rf3_fixed.csv",
+      "sha256": "9c326336dec81b97c30899a06fc2a03a3f15741dcc3963890a4337a35cc4b5e5",
+      "model_override": null
+    },
+    {
+      "file": "lddt_results_rf3_fixed.csv",
+      "sha256": "8cec3d814ce58f834986072b927e232ce502482e15219c211ff37a85fe22c5e7",
+      "model_override": null
+    },
+    {
+      "file": "rscc_results_max_rmsd_protenix_mini.csv",
+      "sha256": "bc417e4fc3e7ae9847cc89e2c98527af8471ef63a7a6bfbef7e980289c3b2758",
+      "model_override": "protenix-mini"
+    },
+    {
+      "file": "lddt_results_protenix_mini.csv",
+      "sha256": "fca0e04ba23a3934446019fbd8dbc0965bdbe91ca89dce811ada8337f8145f05",
+      "model_override": "protenix-mini"
+    },
+    {
+      "file": "rscc_results_max_rmsd_protenix_tiny.csv",
+      "sha256": "b9251b7257256547649275ff1d0c2d1c54f584d745717d741710f608ee749e47",
+      "model_override": "protenix-tiny"
+    },
+    {
+      "file": "lddt_results_protenix_tiny.csv",
+      "sha256": "fc34995caf968827363f9704e193f6344c292617b00ff91c49c8fb11d601836f",
+      "model_override": "protenix-tiny"
+    },
+    {
+      "file": "rscc_results_rf3_chiral_off.csv",
+      "sha256": "a3fee49f56a68c45a8e77b2c202e0bf6b4403e126011c5920f1c29d1851e0952",
+      "model_override": "rf3-chiral-off"
+    },
+    {
+      "file": "lddt_results_rf3_chiral_off.csv",
+      "sha256": "c0984e704cbd5bdeed8d68eb8eccf21decc0d725109be29d419f77d9dd2c040a",
+      "model_override": "rf3-chiral-off"
+    }
+  ],
+  "filters": {
+    "map_occupancy": {
+      "A": 0.5,
+      "B": 0.5
+    },
+    "guidance_weight": 0
+  },
+  "clustering_formula": "min(predicted_occupancies) * avg_silhouette_to_ref / 0.5",
+  "status": "Current-results reconstruction; historical paper identity unverified",
+  "models": [
+    "boltz2MD",
+    "boltz2X-RAY",
+    "protenix",
+    "rf3"
+  ],
+  "rscc_unit": "protein",
+  "clustering_unit": "region",
+  "distribution": "ECDF (ties retained; no smoothing)",
+  "exclude_nan_rscc_proteins": false,
+  "analysis_sha256": {
+    "baseline.py": "5daa4e7b2b6c2b4d16369694d4219f08c401d91814927520bfcac6e622a87539",
+    "loaders.py": "b440c9bdd6425b8773b5aa8d39a96c5e876b69e3746df29d341efa8cc5b51dfc",
+    "style.py": "8893bcde2aed2b83f8a54d65beaccfe29e803d7481894d3fba02aa3b04c3204e",
+    "01_baseline.py": "48822960da4890d7cce4d4fd2a22c451039fc2fad6afbb4656a870bfcb9e9f19",
+    "uv.lock": "63d16bfba4508e8ff6eade3d48d484b2eca47f9341962702d72951ff794763fe"
+  },
+  "caveats": [
+    "Notebook 02 averages RSCC per protein; the Figure 2C caption describes regions.",
+    "Clustering uses the existing minimum across every predicted occupancy entry, including three/four-entry arrays; state correspondence is not yet adjudicated."
+  ]
+}

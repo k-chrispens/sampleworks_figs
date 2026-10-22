@@ -144,6 +144,194 @@ Several figures are rendered in three variants via a UI dropdown. The model grou
 
 ---
 
+## Linked inspection in the five focused notebooks
+
+The main observation/region tables and plots are linked in both directions.
+Plotly box/lasso events resolve through the actual rendered trace IDs and filter
+the table. Table-row callbacks add black marker outlines by stable `point_id`,
+including both copies of a region in Figure 3E. Sorting/paging never becomes a
+vertex index. Empty ECDF/origin anchors and KDE vertices are not observations.
+
+`plot_interaction.py` creates a persistent Plotly `FigureWidget`, rendered by
+`mo.ui.anywidget`; row callbacks update marker styles only. They never resubmit
+layout or visibility, so zoom and legend choices survive. Scientific colored
+rings are separate traces and remain unchanged. Clearing table rows restores
+original marker styles. New plot selections clear row inspection; the explicit
+Clear plot selection button restores the full table. Snapshot/analysis changes create a fresh
+widget and inspection state. Hidden models stay hidden.
+
+Inspection changes no coordinates, statistics, populations, coverage, or fixed
+reconstruction downloads. Toolbar SVGs reflect the visible inspection. The
+nonselectable contribution/coverage/companion tables remain informational.
+
+## First reconstruction: Figure 2C (`01_baseline.py`)
+
+This is a focused reconstruction of the saved baseline ECDF figure, not a claim
+that the current snapshot is the exact historical paper dataset.
+
+- **Inputs:** an explicitly chosen results folder; five RSCC sources from
+  `loaders.RSCC_MAX_RMSD_SOURCES` and their corresponding five lDDT CSVs. Each input
+  is SHA-256 fingerprinted before/after loading; missing files or duplicate
+  `(protein, model_name, selection)` baseline records stop the load.
+- **Filters:** the existing loaders' exact 50/50 occupancy filter, guidance weight
+  zero, no cross-protein NaN-RSCC blacklist. Mini/tiny/chiral-off overrides are
+  retained from the existing source declarations.
+- **Default RSCC population:** one mean per `(protein, model_name)`, including the
+  same region/chain rows as notebook 02. Pandas skips NaN source values in each
+  mean; non-finite resulting means are excluded and reported.
+- **Alternative RSCC population:** one finite region value, excluding
+  `selection_name == "all altloc"`. This is explicitly labeled as exploration of
+  the paper caption's population, not a silent correction to the default.
+- **Clustering:** per-region `min(predicted_occ) * avg_silhouette_to_ref / 0.5`,
+  excluding chain-level selections and non-finite results. The current treatment
+  of occupancy arrays with more than two entries is preserved and disclosed.
+- **Curves:** exact ECDF vertices with ties retained. Static SVG and Plotly render
+  the same final vertices; neither renderer computes a second aggregation.
+- **Inspection:** observation IDs link each curve observation to its source CSV
+  record(s), including the rows underlying a protein mean. The initial ECDF
+  anchor is not an observation.
+- **Interaction:** the plot legend is the only model-visibility control. The four
+  main models start visible and alternative variants start `legendonly`; clicks
+  toggle a model in both panels, double-click isolates it.
+- **Output:** the plot toolbar exports the current visible SVG. Separate in-memory
+  downloads provide `fig2c-reconstruction.svg` (fixed main models), `fig2c-observations.csv`,
+  `fig2c-curves.csv`, and `fig2c-provenance.json`. Model subsets and RSCC population
+  are explicit in the recipe: CSVs include all loaded models; initial visible
+  models and static reconstruction models are recorded separately. Browser
+  legend/zoom changes are not a filter on CSV downloads or the fixed reconstruction.
+- **Initial saved reconstruction:** `figures/fig2c/v01.*`, with the main models and
+  protein-mean RSCC. Inputs remain outside the saved export bundle.
+
+See `open_problems.md` before treating either population as a pinned paper recipe.
+
+## Second reconstruction: Figure 3B (`02_guidance.py`)
+
+- **Inputs:** twenty files in the chosen results snapshot: five RSCC sources from
+  `RSCC_MAX_RMSD_SOURCES`, five clashscore summaries, and five each of bond-angle
+  and bond-length fractions. Files are fingerprinted before/after reading.
+- **Loading:** existing 50/50 filters and per-file variant overrides. Bond members
+  join on their original `(model path, model_n)` keys; unmatched counts are reported.
+  Clashscore members are not joined directly to bond-member indices.
+- **Protein means and deltas:** same grouping and baseline pairing as notebook 03.
+  RSCC is averaged over selections, geometry over ensemble members. Geometry delta
+  families join inward; RSCC joins leftward. Missing baselines and non-finite
+  deltas are reported per metric/model/guidance weight.
+- **Penalty:** mean of delta clashscore and 100 times each bond-violation-fraction
+  delta. NaN-skipping behavior is preserved, with incomplete-term counts exposed.
+- **Summary:** marginal medians and 25th/75th percentiles across protein rows.
+  The existing minimum is three protein rows, not three complete paired metrics.
+  Finite RSCC/geometry counts are separate. Non-finite plotted coordinates/IQRs
+  prevent drawing that group rather than being silently filled.
+- **Display:** both renderers use the same prepared median/IQR coordinates,
+  including a base-10 symmetric-log transformation with threshold/scale 1. Raw
+  penalties remain available in hover, tables, and CSVs. Reconstruction limits
+  remain x = [-0.05, 0.25], raw y = [-1, 1000]. Marker size scales within each
+  model; outlines use `OPTIMAL_GW`, not a newly optimized choice.
+- **Interaction/export:** all models are available through the legend, with main
+  models initially visible. The camera button exports the visible SVG. Separate
+  downloads provide the main-model reconstruction SVG, all-model points/protein
+  contributions, and checksummed provenance. Selecting a point exposes its
+  contributing proteins; the origin is not an additional measured point.
+- **Initial reconstruction:** `figures/fig3b/v01.*`. All main-model trajectories
+  match the existing renderer numerically, including its symlog transformation.
+
+## Third reconstruction: Figure 3C (`03_rscc_improvement.py`)
+
+- **Inputs:** only `rscc_results_max_rmsd_boltz_protenix.csv` and
+  `rscc_results_max_rmsd_rf3_fixed.csv`, read through the existing loader with the
+  exact 50/50 occupancy filter. Each source is fingerprinted before/after loading;
+  this reconstruction requires ensemble size eight.
+- **Pairing:** exclude chain-level selections and alternative models; pair
+  baseline and each main model's existing `OPTIMAL_GW` on
+  `(protein, selection, model_name)`. Duplicate baseline/guided keys are rejected.
+  Missing baseline/guided records and finite pairs are counted separately.
+- **Aggregation:** one row per `(protein, selection)` with separate baseline and
+  guided medians. The displayed y is **guided median minus baseline median**.
+  It is not a median of individual model improvements. The legacy threshold counts
+  at least three paired model rows, including rows containing NaN scores. Finite
+  counts remain explicit; non-finite resulting scatter coordinates are not drawn.
+- **Highlights:** top three positive improvements (green); all negative
+  improvements (red); five largest `1 - guided_median` candidates, then exclude
+  already-green/red selections without backfilling (orange). `6B8X 181-183`,
+  `5MHX 162-164`, and `5SOP 131-133` are overlaid blue even if another ring exists.
+  Neither renderer places fixed segment text. Hover/selection identifies regions;
+  a companion table lists each circled region once with all its categories/colors.
+- **Density:** separate marginal Gaussian KDEs over regions meeting the row-count
+  threshold, using finite values for each marginal independently. Scott bandwidth
+  times 0.5, cut 3, 200 support coordinates, as in seaborn's existing figure.
+  These coordinates are prepared once for both renderers. Degenerate marginals
+  are reported as unavailable, not replaced with another estimator.
+- **References:** no-change `y=0`, guided-RSCC ceiling `y=1-x`, fixed x range [0,1],
+  and the existing residual-dependent lower y limit with upper limit 1.
+- **Interaction:** native legend toggles scatter/highlight/density display, not
+  contributing model membership. Region IDs include the full selection, not just
+  a shortened label. Selecting a region exposes its model pairs and CSV records.
+  Density vertices have no region identity.
+- **Outputs:** toolbar SVG for the visible view; separate full reconstruction SVG,
+  region/model-pair CSVs, prepared density coordinates, and checksummed recipe.
+  The reconstruction ZIP bundles its SVG, highlighted-region CSV, and recipe;
+  the highlighted-region CSV is also available separately and does not follow
+  transient chart selections or legend visibility.
+  Initial files are `figures/fig3c/v01.*`. Historical publication correspondence
+  and aggregation interpretation remain scientific review gates.
+
+## Fourth reconstruction: Figure 3D (`04_clustering_improvement.py`)
+
+- **Inputs:** `lddt_results_boltz_protenix.csv` and `lddt_results_rf3_fixed.csv`
+  from the selected results folder, read without writes and fingerprinted before/
+  after loading. Exact 50/50 map occupancy, eight-member ensembles, main models.
+- **Preparation:** shared `region_improvement.py` with Figure 3C. Pair baseline
+  and each model's existing `OPTIMAL_GW` on `(protein, selection, model_name)`;
+  reject duplicate keys and missing identities. Exclude “all altloc” selections.
+  Group by region, take independent baseline/guided medians, then subtract.
+  Require three paired model rows, not three finite pairs; expose both counts.
+- **Metric:** preserve the loader's
+  `min(all predicted occupancy entries) * avg_silhouette_to_ref / 0.5`.
+  Individual contributions retain baseline/guided occupancy arrays and silhouette/
+  occupancy components. Do not reinterpret three/four-entry arrays as two states.
+- **Highlights/densities:** green top three positive improvements, all decreases
+  red, top three far-from-ceiling candidates orange after excluding green/red
+  without backfill, and the same three curated blue examples as 3C. No fixed
+  segment labels. Same Gaussian KDE preparation, references, and unavailable states
+  as 3C. Static/interactive renderers consume the same final coordinates.
+- **Interaction/exports:** native category legend controls display only, not
+  the fixed model cohort. Hover/select regions and inspect original model/source
+  records. The reconstruction ZIP contains an SVG, circled-region CSV with
+  category/color keys and values, and recipe. Separate tables/density/recipe
+  downloads remain available. Initial artifacts: `figures/fig3d/v01.*`.
+
+## Fifth reconstruction: Figure 3E (`05_min_rmsd.py`)
+
+- **Inputs:** `min_altloc_rmsd_results_boltz_protenix.csv` and
+  `min_altloc_rmsd_results_rf3_fixed.csv`; read/fingerprint without source writes.
+  The loader's opt-in `keep_failed=True` retains failure evidence. Its original
+  default continues to drop incomplete pairs for the larger notebook.
+- **Within-model reduction:** A/B values are already upstream minima over eight
+  ensemble members, computed separately for each altloc. No structure evaluation
+  or another within-ensemble reduction occurs here.
+- **Across-model reduction:** select existing `OPTIMAL_GW` per main model, exclude
+  “all altloc” selections, reject duplicate selected identities and negative RMSD.
+  A contributor must have finite A **and** B values. Aggregate those complete
+  model pairs by region; require three models.
+  Default **median** reproduces the original notebook; explicit **mean** matches
+  the caption-described alternative. Historical publication correspondence remains
+  unresolved. Aggregation is recorded in exported filenames and recipes.
+- **Coverage:** report regions seen at any weight, absent chosen-weight rows,
+  recorded non-finite pairs, and regions below three contributors. Missing
+  unexported evaluations cannot be inferred without an experiment manifest.
+- **Rendering:** same final points in full-range and 0–3 Å equal-aspect panels,
+  gray point cloud, `y=x` guide, generic closer-to-A/B cues in the static version.
+  Preserve blue `6B8X 181-183`, `5MHX 162-164`, `5SOP 131-133`; orange
+  `2QCV 2-4`, `4OLE 424-426`, `6RP1 5`; the original eight red `7Z0E`
+  examples in the zoom panel only. No fixed segment labels or invented green
+  category; 6NI5/6NI6 rings remain omitted as in the existing aggregate.
+- **Interaction/exports:** native display-category legend, hover with full
+  selection identity, stable cross-panel region selection, and model/source
+  drilldown. Full reconstruction ZIP bundles both-panel SVG, companion
+  circled-region table (including zoom-only categories), and recipe. Transient
+  chart selections do not filter those exports. Initial median artifacts:
+  `figures/fig3e/v01.*`; the mean alternative uses `v01-mean.*`.
+
 ## Notebook 1: Fit Quality (`02_fit_quality.py`)
 
 ### Source data

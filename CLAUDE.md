@@ -6,12 +6,17 @@ Guidance for Claude Code (claude.ai/code) working in this repository.
 
 Analysis codebase for a structural biology paper evaluating AI protein structure prediction models (Boltz2, Protenix, RoseTTAFold3 variants) on alternate conformations with experimental density guidance. Compares model outputs against ground-truth crystallographic data across RSCC, lDDT, clashscores, bond geometry, and minimum RMSD to each altloc.
 
-The analysis is three marimo notebooks (`02_fit_quality.py`, `03_tradeoffs.py`, `04_recycles_steps_ensembles.py`) on top of eight flat pure-Python modules. Figures save as SVG into `figures/`.
+The full analysis is three marimo notebooks (`02_fit_quality.py`, `03_tradeoffs.py`, `04_recycles_steps_ensembles.py`) on top of flat pure-Python modules. Figures save as SVG into `figures/`. Focused reconstructions are `01_baseline.py` (Figure 2C, supported by `baseline.py`), `02_guidance.py` (Figure 3B, supported by `guidance.py`), `03_rscc_improvement.py` / `04_clustering_improvement.py` (Figures 3C/D, supported by `region_improvement.py`), and `05_min_rmsd.py` (Figure 3E, supported by `min_rmsd.py`).
 
 ## Commands
 
 ```sh
 uv sync                                # install
+uv run marimo edit 01_baseline.py      # first figure reconstruction + exploration
+uv run marimo edit 02_guidance.py      # guidance/geometry reconstruction + exploration
+uv run marimo edit 03_rscc_improvement.py  # region-level RSCC improvement + model pairs
+uv run marimo edit 04_clustering_improvement.py  # clustering improvement + score components
+uv run marimo edit 05_min_rmsd.py       # ensemble minima + across-model mean/median
 uv run marimo edit 02_fit_quality.py   # primary workflow (interactive)
 uv run marimo run  02_fit_quality.py   # headless render (slow — usually overkill)
 ```
@@ -26,7 +31,12 @@ Each module imports only from those above it; no cycles.
 |---|---|---|
 | `style.py` | rcParams, palettes, constants, save helpers | `MODEL_PALETTE`, `MODEL_DISPLAY`, `MODEL_NAME_ALIAS`, `MODELS_ALT`, `OCC_FILTER[_ALTLOC]`, `OPTIMAL_GW`, `GW_TO_STRENGTH`, `save_fig`, `save_per_model_figures`, `save_model_legend` |
 | `loaders.py` | CSV → tidy DataFrame | `load_rscc`, `load_rscc_max_rmsd`, `load_rscc_recyc_diff`, `load_lddt`, `load_min_altloc_rmsd`, `load_classification`, `merge_classification_by_containment`, `load_training_cluster_counts`, `load_deposition_cutoffs`, `get_rscc_nan_proteins`, `add_simplified_metadata_columns` |
+| `baseline.py` | Figure 2C snapshot preparation, ECDFs, rendering, provenance | `load_baseline_snapshot`, `prepare_baseline`, `baseline_ecdf`, `make_baseline_static`, `make_baseline_interactive`, `baseline_provenance` |
 | `transforms.py` | DataFrame → DataFrame (pure) | `make_delta_frame`, `build_training_bias_df`, `filter_by_model_group`, `format_residue_range`, `model_slug` |
+| `guidance.py` | Figure 3B snapshot, protein deltas, median/IQR, renderers | `load_guidance_snapshot`, `prepare_guidance`, `make_guidance_static`, `make_guidance_interactive` |
+| `region_improvement.py` | Figures 3C/D paired model results, region medians, highlights/KDEs | `load_improvement_snapshot`, `prepare_improvement`, `prepare_density`, `highlighted_regions`, `make_improvement_static`, `make_improvement_interactive` |
+| `min_rmsd.py` | Figure 3E ensemble minima, mean/median aggregation, two-panel rendering | `load_min_rmsd_snapshot`, `prepare_min_rmsd`, `highlighted_min_rmsd`, `make_min_rmsd_static`, `make_min_rmsd_interactive` |
+| `plot_interaction.py` | Persistent Plotly widget, stable plot/table selection, display-only outlines | `make_linked_widget`, `highlight_table_rows`, `highlight_observations`, `select_observations` |
 | `plot_distributions.py` | Baseline KDE/ECDF | `make_combined_baseline_distributions` |
 | `plot_scatter.py` | Scatter family | `make_scatter_comparison`, `make_rscc_scatter`, `make_aggregated_scatter`, `make_min_rmsd_scatter` |
 | `plot_classified.py` | 4×4 model-by-class grid | `make_by_class_combined_grid` |
@@ -38,6 +48,26 @@ Read module docstrings for full APIs and design notes. **`data_in_each_plot.md` 
 ## Data Sources
 
 All figure inputs live in **`results/`** (the old top-level + `initial40results/` CSVs are gone). The four formerly-monolithic sources (LDDT, base RSCC, clashscore, bond-violations) are now **five per-model-group files each, concatenated in-memory inline in the notebook cells** with hardcoded `results/…` paths — there is no central `RESULTS_DIR` constant and no `load_*_all()` helper.
+
+**Focused reconstruction exception:** the five focused notebooks accept an explicit
+results folder (default `results`, or `SAMPLEWORKS_RESULTS`) and read it without
+writing. They fingerprint their source files and reuse existing loader declarations.
+Protein-mean RSCC remains notebook 01's default; per-region RSCC is a labeled
+alternative pending paper adjudication. Figures 2C/3B use the native legend for
+model visibility; Figure 3C aggregates a fixed main-model population and its legend
+controls display categories only, as do Figures 3D/E. Figure 3E defaults to the
+existing across-model median and exposes the caption-described mean as an explicit
+unverified alternative. Circled regions have no fixed segment text; their static
+reconstruction ZIPs bundle the SVG, companion highlight table, and recipe.
+Toolbar SVGs reflect the visible view; separate
+reconstruction SVGs and CSVs have explicit fixed scopes. Both renderers consume the
+same prepared coordinates (and, for Figure 3C, density curves).
+Main observation/region tables are bidirectionally linked through a persistent
+Plotly `FigureWidget` and `mo.ui.anywidget`. Table callbacks update marker styles
+in place; do not recreate the chart on row selection (that loses zoom/legend state).
+Black inspection outlines never enter fixed reconstruction exports.
+Tests: `uv run python -m unittest discover -s tests -v`. See
+`open_problems.md`; merged-artifact storage remains unapproved.
 
 | Path (all under `results/`) | Contents |
 |---|---|

@@ -1,0 +1,10 @@
+# Keep authored molecular panels out of the CPU figure workspace.
+/.tools/
+/*.af
+/*.svg
+/*.jpg
+/*.png
+/*_panel/
+/*_results/
+/examples_panels/
+/sidechain_panel/

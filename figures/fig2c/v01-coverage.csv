@@ -1,0 +1,9 @@
+metric,model_name,unit,baseline_rows,excluded_chain_rows,nonfinite_source_values,plotted_observations
+RSCC,boltz2MD,protein mean,791,0,0,40
+RSCC,boltz2X-RAY,protein mean,791,0,0,40
+RSCC,protenix,protein mean,791,0,0,40
+RSCC,rf3,protein mean,791,0,0,40
+Clustering score,boltz2MD,region,791,0,0,791
+Clustering score,boltz2X-RAY,region,791,0,6,785
+Clustering score,protenix,region,791,0,0,791
+Clustering score,rf3,region,791,0,9,782

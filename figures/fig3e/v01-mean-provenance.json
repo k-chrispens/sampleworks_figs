@@ -1,0 +1,71 @@
+{
+  "source_files": [
+    {
+      "file": "min_altloc_rmsd_results_boltz_protenix.csv",
+      "sha256": "9577a94e142c6ca4a5ed60c9e129a7f0043a8542b572b245f8be97452651ffb2"
+    },
+    {
+      "file": "min_altloc_rmsd_results_rf3_fixed.csv",
+      "sha256": "aef676f1848fcae727251d689ae227c00d0b632a9406d72fcb049671bee916b2"
+    }
+  ],
+  "snapshot_sha256": "f93dff1ef456e22d800dacb52aa6801a33f1480b43e2557abd665dda186abd77",
+  "aggregation": "mean",
+  "status": "Current-results reconstruction; historical paper computation unverified",
+  "within_model": "Precomputed minimum over the eight ensemble members, separately for A/B",
+  "across_models": "mean of complete per-model A/B pairs; at least three main models",
+  "chosen_guidance_weights": {
+    "boltz2X-RAY": 0.1,
+    "boltz2MD": 0.1,
+    "protenix": 0.1,
+    "rf3": 0.01
+  },
+  "filters": {
+    "map_occupancy": {
+      "A": 0.5,
+      "B": 0.5
+    },
+    "ensemble_size": 8,
+    "minimum_models": 3,
+    "exclude_nan_rscc_proteins": false
+  },
+  "caveats": [
+    "Median reproduces the existing notebook; mean is the caption-described alternative.",
+    "Neither option establishes the historical published calculation.",
+    "Non-finite A/B pairs are excluded before aggregation and retained in the contribution table.",
+    "Expected evaluations not present at any guidance weight cannot be inferred."
+  ],
+  "highlights": {
+    "blue": [
+      "6B8X 181-183",
+      "5MHX 162-164",
+      "5SOP 131-133"
+    ],
+    "orange": [
+      "2QCV 2-4",
+      "4OLE 424-426",
+      "6RP1 5"
+    ],
+    "red_zoom_only": [
+      "7Z0E 11-13",
+      "7Z0E 18-20",
+      "7Z0E 54-56",
+      "7Z0E 82-84",
+      "7Z0E 122-124",
+      "7Z0E 181-183",
+      "7Z0E 206-208",
+      "7Z0E 214-216"
+    ],
+    "fixed_segment_labels": false
+  },
+  "export_scope": "Toolbar SVG: visible view. Reconstruction ZIP: both panels, circled-region table and recipe for the selected aggregation.",
+  "analysis_sha256": {
+    "min_rmsd.py": "34fe0c7c120686165c4c9d7ed9313e13504eb16db6c8bbc0d856e78d79995144",
+    "loaders.py": "d08bc3154b83a021f182c960f75fd76cb9c0c22b86374e9636b57fc5c65d2ccc",
+    "style.py": "8893bcde2aed2b83f8a54d65beaccfe29e803d7481894d3fba02aa3b04c3204e",
+    "transforms.py": "9b969eaa6aa4fa76474cb0895666f608dbe1f7901b1e0a09ccb4d64a29fcc668",
+    "plot_interaction.py": "e51cc7d345015e0ca883963049b6e21994fdfe3f6d2d9f13e7813eb1a1487603",
+    "05_min_rmsd.py": "f3fba23fbb104de322efbdbe9e3df417f31a5f70bff2b01bcc07efdfe9b9b46f",
+    "uv.lock": "8dcb7e1089c200d36d065dca79338076c3fe06d9f676ec02b584b2272f75e20f"
+  }
+}

@@ -289,6 +289,8 @@ def load_rscc_max_rmsd() -> pd.DataFrame:
 def load_min_altloc_rmsd(
     csv_path: str,
     model_name_override: str | None = None,
+    *,
+    keep_failed: bool = False,
 ) -> pd.DataFrame:
     """Load per-(protein, model, gw, selection) minimum-RMSD-to-each-altloc results.
 
@@ -310,6 +312,9 @@ def load_min_altloc_rmsd(
         ``"protenix"`` and is not otherwise distinguishable from the
         canonical ``protenix`` rows). When ``None``, model_name is built
         from the ``model``/``method`` columns and aliased.
+    keep_failed : bool
+        Preserve rows with missing RMSDs for explicit coverage reporting.
+        The default retains the original complete-pair-only behavior.
 
     Returns
     -------
@@ -331,7 +336,8 @@ def load_min_altloc_rmsd(
         )
         df["model_name"] = df["model_name"].map(lambda x: MODEL_NAME_ALIAS.get(x, x))
     n_before = len(df)
-    df = df.dropna(subset=["min_rmsd_to_A", "min_rmsd_to_B"])
+    if not keep_failed:
+        df = df.dropna(subset=["min_rmsd_to_A", "min_rmsd_to_B"])
     n_dropped = n_before - len(df)
     if n_dropped > 0:
         print(

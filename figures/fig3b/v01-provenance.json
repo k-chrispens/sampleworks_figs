@@ -1,0 +1,167 @@
+{
+  "snapshot_sha256": "885b632d2d91f26165315b5d6c9fbc6554f0aefcb6f84e5270bc5658550ffdaf",
+  "source_files": [
+    {
+      "file": "rscc_results_max_rmsd_boltz_protenix.csv",
+      "sha256": "6277bc8f2b3101217c7a1955736ec373332e5bc0cc4d3409437e6d1c5ab7d185"
+    },
+    {
+      "file": "clashscore_metrics_boltz_protenix.csv",
+      "sha256": "07aef99b81a3509537098496c4f3f46fb779a2b83a131597d005eee7cfedc0a2"
+    },
+    {
+      "file": "bond_angle_violation_fractions_boltz_protenix.csv",
+      "sha256": "f784bfb7336daa2baf91471dba4ff621fe545bc0ff6fba99ac807015d26d39df"
+    },
+    {
+      "file": "bond_length_violation_fractions_boltz_protenix.csv",
+      "sha256": "2c9024e4005252574952382e9b019926349272582ce19d2d55f712d253f4cb45"
+    },
+    {
+      "file": "rscc_results_max_rmsd_rf3_fixed.csv",
+      "sha256": "9c326336dec81b97c30899a06fc2a03a3f15741dcc3963890a4337a35cc4b5e5"
+    },
+    {
+      "file": "clashscore_metrics_rf3_fixed.csv",
+      "sha256": "5cc0461fba0c470fc7b15828f7589c9e6c480b0f373e6f149ad9812f2516b8b6"
+    },
+    {
+      "file": "bond_angle_violation_fractions_rf3_fixed.csv",
+      "sha256": "1f46e8e584b37df3d019ea9aa11b09296ab44c4426c7dc9e4288172ada9e6f5c"
+    },
+    {
+      "file": "bond_length_violation_fractions_rf3_fixed.csv",
+      "sha256": "d3d5c09650a0d580881d45d1cf007e2a2f34fdc7bda934642581d12e92a3ad7e"
+    },
+    {
+      "file": "rscc_results_max_rmsd_protenix_mini.csv",
+      "sha256": "bc417e4fc3e7ae9847cc89e2c98527af8471ef63a7a6bfbef7e980289c3b2758"
+    },
+    {
+      "file": "clashscore_metrics_protenix_mini.csv",
+      "sha256": "59267ca94f62bca0300dc3248918c9815ae75f1249b34f0eb809f26bfa30114d"
+    },
+    {
+      "file": "bond_angle_violation_fractions_protenix_mini.csv",
+      "sha256": "9a14af504e3817d906daa86e63fabe972ac8b74464c779a8430636075d702a2e"
+    },
+    {
+      "file": "bond_length_violation_fractions_protenix_mini.csv",
+      "sha256": "5ae824f87d3a573b1ab103c89b367de0c69ad775e019e9bb2ac73d7dcffff3d5"
+    },
+    {
+      "file": "rscc_results_max_rmsd_protenix_tiny.csv",
+      "sha256": "b9251b7257256547649275ff1d0c2d1c54f584d745717d741710f608ee749e47"
+    },
+    {
+      "file": "clashscore_metrics_protenix_tiny.csv",
+      "sha256": "f5289d2d3d57af8154b4a5d496e6cf9071346700ba7045a0e7e5d98ddbe712ac"
+    },
+    {
+      "file": "bond_angle_violation_fractions_protenix_tiny.csv",
+      "sha256": "861490d8aa3076bf7837f38a8cd9ad2895e904f44f19956f995d063594d7fe99"
+    },
+    {
+      "file": "bond_length_violation_fractions_protenix_tiny.csv",
+      "sha256": "78d29c5f0121a1d5b976d09deb37a9acca127f6fb7931452cd3f5e30d447ad93"
+    },
+    {
+      "file": "rscc_results_rf3_chiral_off.csv",
+      "sha256": "a3fee49f56a68c45a8e77b2c202e0bf6b4403e126011c5920f1c29d1851e0952"
+    },
+    {
+      "file": "clashscore_metrics_rf3_chiral_off.csv",
+      "sha256": "4adefbd962ddd554e8ce1fb1c42cbf31717bfe430b8c16f8b9943d4af629b6f1"
+    },
+    {
+      "file": "bond_angle_violation_fractions_rf3_chiral_off.csv",
+      "sha256": "1044b62c80634a596f2a5bef4ddbbdbc4d3dba8890a5f9fd3acbd8d726082150"
+    },
+    {
+      "file": "bond_length_violation_fractions_rf3_chiral_off.csv",
+      "sha256": "5e453529f70d7c1571165c45fd97ba01f4578177eb10d8e488f4bcd94db196cd"
+    }
+  ],
+  "bond_member_joins_all_occupancies": [
+    {
+      "source_group": "boltz_protenix",
+      "model_override": null,
+      "angle_only_members": 0,
+      "length_only_members": 0
+    },
+    {
+      "source_group": "rf3_fixed",
+      "model_override": null,
+      "angle_only_members": 0,
+      "length_only_members": 0
+    },
+    {
+      "source_group": "protenix_mini",
+      "model_override": "protenix-mini",
+      "angle_only_members": 0,
+      "length_only_members": 0
+    },
+    {
+      "source_group": "protenix_tiny",
+      "model_override": "protenix-tiny",
+      "angle_only_members": 0,
+      "length_only_members": 0
+    },
+    {
+      "source_group": "rf3_chiral_off",
+      "model_override": "rf3-chiral-off",
+      "angle_only_members": 0,
+      "length_only_members": 0
+    }
+  ],
+  "status": "Notebook 03 reconstruction; historical paper identity unverified",
+  "filters": {
+    "map_occupancy": {
+      "A": 0.5,
+      "B": 0.5
+    },
+    "ensemble_size": 8,
+    "exclude_nan_rscc_proteins": false,
+    "minimum_protein_rows": 3
+  },
+  "geometry_penalty": "mean(delta_clashscore, 100*delta_bond_length_fraction, 100*delta_bond_angle_fraction), skipping NaN terms as in notebook 03",
+  "aggregation": "Marginal medians and 25th/75th percentiles across protein deltas",
+  "display": "base-10 symlog, linthresh=1, linscale=1; raw values retained in tables/hover",
+  "chosen_guidance_weights": {
+    "boltz2X-RAY": 0.1,
+    "boltz2MD": 0.1,
+    "protenix": 0.1,
+    "protenix-mini": 0.1,
+    "protenix-tiny": 0.1,
+    "rf3": 0.01,
+    "rf3-chiral-off": 0.01
+  },
+  "initially_visible_models": [
+    "boltz2X-RAY",
+    "boltz2MD",
+    "protenix",
+    "rf3"
+  ],
+  "static_reconstruction_models": [
+    "boltz2X-RAY",
+    "boltz2MD",
+    "protenix",
+    "rf3"
+  ],
+  "export_scope": "CSV: all loaded models; reconstruction SVG: main models; plot-toolbar SVG: current legend-visible view",
+  "caveats": [
+    "RSCC is averaged over selections per protein; geometry is averaged over members.",
+    "Marginal RSCC/geometry summaries may have different finite contributors.",
+    "RF3-Chiral-Off retains notebook 03's base-RSCC fallback.",
+    "The baseline origin is a reference, not an additional measured point."
+  ],
+  "analysis_sha256": {
+    "guidance.py": "6f4d7d1d5adc06269c9e5c346ce84e1cae462f45c8c9ecd3c9d2d43a75931274",
+    "loaders.py": "b440c9bdd6425b8773b5aa8d39a96c5e876b69e3746df29d341efa8cc5b51dfc",
+    "transforms.py": "9b969eaa6aa4fa76474cb0895666f608dbe1f7901b1e0a09ccb4d64a29fcc668",
+    "style.py": "8893bcde2aed2b83f8a54d65beaccfe29e803d7481894d3fba02aa3b04c3204e",
+    "plot_interaction.py": "e51cc7d345015e0ca883963049b6e21994fdfe3f6d2d9f13e7813eb1a1487603",
+    "02_guidance.py": "f0083522758236b244cb13b2b6f5696b6cce5484f4ab63d500b209325c1195fa",
+    "uv.lock": "63d16bfba4508e8ff6eade3d48d484b2eca47f9341962702d72951ff794763fe"
+  }
+}

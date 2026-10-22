@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Robust evaluation-to-figure pipeline</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #fafaf8; --fg: #232b31; --muted: #52616b; --line: #d6dddf; --panel: #fff; --accent: #265d73; --question: #fff6df; --question-line: #b78527; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, sans-serif; }
+    header, main, nav { max-width: 1040px; margin: auto; padding: 1.5rem 2rem; }
+    header { padding-top: 3rem; }
+    h1 { font-size: 2.2rem; line-height: 1.2; margin: 0 0 1.5rem; }
+    h2 { font-size: 1.6rem; margin-top: 0; }
+    h3 { font-size: 1.12rem; margin: 1.6rem 0 .5rem; }
+    blockquote { margin: 0 0 1.5rem; padding: .8rem 1.2rem; border-left: 3px solid var(--accent); background: var(--panel); }
+    details { margin: 1rem 0; }
+    summary { cursor: pointer; font-weight: 600; }
+    .meta { color: var(--muted); font-size: .9rem; }
+    nav { display: flex; flex-wrap: wrap; gap: .6rem 1.2rem; padding-top: 0; }
+    a { color: var(--accent); text-underline-offset: .15em; }
+    section { margin-bottom: 2rem; padding: 1.5rem; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); scroll-margin-top: 1rem; }
+    li { margin-bottom: .55rem; }
+    ul, ol { padding-left: 1.4rem; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .9em; }
+    pre { overflow-x: auto; padding: 1rem; border: 1px solid var(--line); border-radius: 4px; }
+    table { width: 100%; border-collapse: collapse; font-size: .93rem; margin: 1rem 0; }
+    th, td { text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); padding: .7rem; }
+    th { color: var(--muted); }
+    .table-wrap { overflow-x: auto; }
+    .questions { border-left: 5px solid var(--question-line); background: var(--question); }
+    .badge { display: inline-block; border: 1px solid var(--line); border-radius: 4px; padding: .1rem .5rem; font-size: .85rem; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #171d21; --fg: #e5e9eb; --muted: #adbcc4; --line: #3e4b52; --panel: #20292e; --accent: #8dc9df; --question: #302a1d; --question-line: #d2ac56; }
+    }
+    @media (max-width: 650px) {
+      header, main, nav { padding-left: 1rem; padding-right: 1rem; }
+      section { padding: 1rem; }
+      h1 { font-size: 1.8rem; }
+    }
+    @media print {
+      :root { color-scheme: light; --bg: white; --fg: black; --muted: #444; --line: #bbb; --panel: white; --accent: #333; --question: white; }
+      nav { display: none; }
+      header, main { max-width: none; padding: 1rem; }
+      section { break-inside: auto; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Robust evaluation-to-figure pipeline</h1>
+    <blockquote>I'd like to make a plan for making this pipeline (from evaluation data in the prism-science/sampleworks GitHub repo to interactive figures here with marimo notebooks) more robust, and more clear. Can you help me, here? If you need to remove large amounts of the code here, feel free. It would probably be easier that way, considering that there are lots of panels here that aren't relevant. We can clean this up so it is a minimal, robust pipeline for generating interactive figures from data that obeys a specific input contract. Create a new branch where we'll do this planning and implementation.</blockquote>
+    <details>
+      <summary>Refined prompt clarifications</summary>
+      <ul>
+        <li>Retain all paper and supplemental figure families; defer Mol* ensemble viewing until testing examples are supplied.</li>
+        <li>Coordinate upstream export improvements, stay close to existing outputs, and document migration to the contract.</li>
+        <li>Build a reproducible, exploratory core suitable for later hardening in a downstream fork.</li>
+        <li>Reject malformed or ambiguous data and unresolved duplicate keys; preserve evaluation failures and report coverage/exclusions.</li>
+        <li>Support controls, tables, publication export, hover details, and point selection.</li>
+        <li>Use the Stacks publication, currently Version 2, as the figure-inventory reference.</li>
+        <li>Import read-only output folders into one merged intermediate artifact; defer integrated sync.</li>
+        <li>Allow exploration of conditions, occupancies, aggregation, inclusion rules, derived metrics, and classification thresholds; pin paper recipes to a git tag/GitHub release.</li>
+        <li>Define a simple sampling-budget schema; track translation details in a separate open-problems document.</li>
+        <li>Make identity conflicts apparent at notebook startup and resolve them interactively, including distinguishing separate runs/model versions; persist decisions and verify marimo compatibility.</li>
+        <li>Keep underlying structural evaluations upstream; explore exported measurements and derived metrics here.</li>
+        <li>Audit publication/code discrepancies before pinning affected recipes, including Figure 3E's mean-versus-median aggregation.</li>
+        <li>Require explicit run selection, allow manually selected combinations of models in any figure, and never pool runs implicitly.</li>
+        <li>Use one marimo landing/setup notebook, followed by scientific figure notebooks.</li>
+        <li>Define exploratory metrics in readable Python functions, with notebook controls for their parameters and selection.</li>
+        <li>Establish access and provenance for the original evaluation exports using actl mount before implementing the importer; clarify that molecular panels include structure/density examples such as Figure 2D/E.</li>
+        <li>Use actl's writable mount with read-only source handling enforced by the supported notebook/import workflow; write intermediates, decisions, caches, and figures outside the source mount.</li>
+        <li>The user confirms the source folders under <code>/mnt/diffuse-shared/raw/sampleworks/occ_sweep_results*</code>; discovery confirms namespace <code>diffuse</code> and a bound, mountable <code>diffuse-shared</code> PVC. Resolve that PVC-relative location against the actual local mountpoint.</li>
+        <li>Use plain-language source/model/condition choices rather than require scientists to learn a new run/trial/evaluation-context taxonomy. Keep the underlying distinctions only where needed to associate measurements correctly.</li>
+        <li>Scientific notebooks display the artifact/configuration they actually loaded; rebuilt artifacts require explicit reload and exports identify the rendered state.</li>
+        <li>Do not keep old loader APIs or notebooks for backward compatibility alone. Git history/tags preserve old code; each migration commit must contain a coherent working set of supported code.</li>
+        <li>Interactive and publication renderers share final plotted coordinates, uncertainty values, contributors, and exclusions; neither renderer independently performs scientific aggregation.</li>
+        <li>Start reconstruction from this repo's existing <code>results/</code> snapshot, beginning with the earliest generated paper panels, then make those figures interactive one by one. Do not substitute the audited cluster exports without approval.</li>
+        <li>Legacy results with unknown historical metadata may be used for clearly labeled exploration after explicit association; paper-reference eligibility is a separate audit decision.</li>
+        <li>Use each plot's native legend as the model-visibility control; remove the separate model-selection block. Plot-toolbar SVG exports reflect the visible view; fixed main-model reconstruction exports and all-model CSVs are labeled separately.</li>
+      </ul>
+    </details>
+    <div class="meta">Generated <time datetime="2026-10-05T17:07:28-07:00">2026-10-05T17:07:28-07:00</time></div>
+    <div class="meta">Branch: <code>refactor/minimal-figure-pipeline</code> · Planning only · High-level implementation boundaries; detailed schemas follow in phase 1.</div>
+  </header>
+  <nav aria-label="Plan sections">
+    <a href="#overview">Overview</a>
+    <a href="#behavior">Expected behavior</a>
+    <a href="#implementation">Implementation plan</a>
+    <a href="#phases">Implementation phases</a>
+    <a href="#testing">Testing strategy</a>
+    <a href="#questions">Open questions</a>
+  </nav>
+  <main>
+    <section id="overview">
+      <h2>Overview</h2>
+      <ul>
+        <li><strong>Goal:</strong> a small, explicit path from evaluation exports to reproducible paper figures and useful interactive exploration. Minimal means fewer hidden assumptions and redundant implementations, not fewer scientific figure families.</li>
+        <li><strong>Architecture:</strong> read-only source folders → inspection and interactive identity resolution → one validated intermediate artifact → shared pandas analysis → marimo exploration and publication export.</li>
+        <li><strong>Scope:</strong> retain fit/recovery, geometry tradeoffs, conformational classes, training-distribution bias, and sampling-budget analyses. Keep authored diagrams and structure panels as assets; generating replacement molecular panels is later work.</li>
+        <li><strong>Contract boundary:</strong> evolve the existing upstream metric-family exports. Add explicit identity, evaluation context, and status where needed; do not demand a wholly unrelated upstream format.</li>
+        <li><strong>Scientific behavior:</strong> keep measurements, derived metrics, aggregation, and presentation distinct. A saved paper recipe pins each choice; exploration may vary them without mutating the paper reference.</li>
+        <li><strong>Non-goals for the initial pipeline:</strong> integrated remote sync, running structural evaluations, GPU orchestration, an arbitrary formula-builder UI, production deployment, or immediate Mol* integration.</li>
+      </ul>
+      <pre aria-label="Pipeline architecture"><code>Existing evaluation folders (read-only)
+                  ↓
+Landing notebook: discover → inspect → resolve identities
+                  ↓
+One validated intermediate artifact + saved decisions
+                  ↓
+Shared analysis functions + explicit figure recipes
+                  ↓
+Scientific notebooks
+  ├─ controls, hover, selection, supporting rows and coverage
+  └─ publication exports with recipe/data provenance
+
+Later: selected evaluation → Mol* ensemble viewer</code></pre>
+      <details>
+        <summary>Evidence and baseline inspected</summary>
+        <ul>
+          <li>Local baseline: commit <code>f09a229093114d4bac4195b1859581d22d807c01</code>. Three marimo notebooks use flat pandas/plot modules, but file lists, variant overrides, joins, and scientific choices are distributed across notebook cells. <code>results/</code> is ignored and absent from this Delta worktree, but was located through the local remote in the primary checkout at <code>/Users/kyroyo/Downloads/sampleworks_paper/for_team/results</code>. That is the user-selected reconstruction input; read it without editing the primary checkout. No fixture copies have been created.</li>
+          <li>Upstream baseline: <code>prism-science/sampleworks</code>, main commit <code>6d6de87eae359b490ff05dfa95d3c6c28ebdd2c2</code>. Inspected actual RSCC, lDDT, RMSD, geometry, classification, and trial-discovery code—not just documentation.</li>
+          <li>RSCC, lDDT, and minimum-RMSD exports carry trial metadata and selection strings. Geometry summaries carry CIF paths and ensemble-member indices. Occupancies have heterogeneous string encodings; variant identity and selection representation need normalization.</li>
+          <li>Current generic trial exports lack the recycles/diffusion-step fields consumed by the local sampling-budget notebook. Those specialized results need a documented translation, not an assumed regeneration.</li>
+          <li>Publication reference: <code>https://thestacks.org/publications/sampleworks-release</code>, Version 2, DOI <code>10.82153/jkxj-tw08</code>. Main Figures 1–5 and supplementary captions S1–S9 were inspected.</li>
+          <li>Publication assets: PDF <code>https://thestacks-01.s3.us-west-2.amazonaws.com/publications/sampleworks-release/sampleworks-release_v2.pdf</code>; data/code archive DOI <code>10.5281/zenodo.20584989</code>. GitHub API lookup confirms the linked <code>diff-use/sampleworks</code> redirects to <code>prism-science/sampleworks</code>, with the same repository ID <code>1071827038</code>. The exact paper-associated commit/release remains to be established.</li>
+          <li>Current marimo lock is <code>0.23.2</code>. A dependency upgrade is contingent on testing the intended startup and selection workflows, not assumed necessary.</li>
+        </ul>
+      </details>
+      <details id="source-audit">
+        <summary>Mounted-source audit: observed inputs, limitations, and fingerprints</summary>
+        <ul>
+          <li><strong>Audit timestamp:</strong> <code>2026-10-07T15:28:20-07:00</code>. Source: namespace <code>diffuse</code>, PVC <code>diffuse-shared</code>, relative root <code>raw/sampleworks</code>. Local mount access was established; CSV counting/hashing ran on the existing <code>sampleworks-main</code> pod using its existing pixi environment with <code>--as-is</code>. No evaluation was rerun or new workspace created.</li>
+          <li><strong>Scope:</strong> 32 metric-summary CSVs in the five expected occupancy-sweep roots; two specialized sweep CSVs and three small input CSVs; bounded metadata/log inspection. Large per-atom outlier files, structures, maps, and compressed archives were not copied or exhaustively hashed.</li>
+          <li><strong>Integrity:</strong> all 32 summary CSVs retained their size/mtime during inspection and their SHA-256 hashes matched on a final recheck. No duplicate keys were found within individual exports using trial-directory plus selection, or path plus member ID for geometry. This is not a claim that different exports have no semantic overlaps.</li>
+        </ul>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Source root</th><th>Base RSCC</th><th>Max-RMSD RSCC</th><th>lDDT</th><th>Minimum RMSD</th><th>Rows per geometry summary</th></tr></thead>
+            <tbody>
+              <tr><td><code>occ_sweep_results</code></td><td>71,135 / 14,238</td><td>71,135 / 14,238</td><td>71,135 / 14,238</td><td>71,135 / 14,238</td><td>28,776</td></tr>
+              <tr><td><code>occ_sweep_results_protenix_mini</code></td><td>23,730 / 4,746</td><td>21,450 / 4,290</td><td>23,730 / 4,746</td><td>23,730 / 4,746</td><td>9,600</td></tr>
+              <tr><td><code>occ_sweep_results_protenix_tiny</code></td><td>23,730 / 4,746</td><td>21,450 / 4,290</td><td>23,730 / 4,746</td><td>23,730 / 4,746</td><td>9,600</td></tr>
+              <tr><td><code>occ_sweep_results_rf3_fixed</code></td><td>27,685 / 5,537</td><td>27,685 / 5,537</td><td>27,685 / 5,537</td><td>27,685 / 5,537</td><td>11,200</td></tr>
+              <tr><td><code>occ_sweep_results_rf3_chiral_off</code></td><td>27,685 / 5,537</td><td>Absent</td><td>Absent</td><td>Absent</td><td>11,200</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <ul>
+          <li>Metric counts are <strong>all rows / rows at 50/50 map occupancy</strong>, before figure filtering or removal of missing values. Geometry counts are all member rows, without a typed occupancy column. Each root has clashscore, bond-angle, and bond-length summary exports.</li>
+          <li><strong>Coverage is artifact-specific:</strong> current base RSCC and available lDDT exports contain records for all 40 proteins for each model represented. Mini/tiny max-RMSD RSCC covers only 35 proteins, omitting <code>2I6H, 4OLE, 6RP1, 7Z0E, 8Z76</code>. Do not reuse historical coverage statements or treat every metric file as the same dataset snapshot.</li>
+          <li><strong>Variant identity remains ambiguous:</strong> mini/tiny exports both say <code>model=protenix</code>; RF3 variants both say <code>model=rf3</code>. Folder names distinguish candidate variants, but checkpoint/run assignments need exported evidence or explicit curator confirmation.</li>
+          <li><strong>Private/shared alias verified:</strong> in the existing pod, <code>/mnt/diffuse-private</code> exists, and its <code>raw/sampleworks</code> subdirectory is a symlink to <code>/mnt/diffuse-shared/raw/sampleworks</code>. The RF3 lDDT CSV accessed through either root is the same file. These private paths are valid aliases, not evidence of a separate dataset or missing files. Preserve the original locator and record the verified alias rather than making paths evaluation identities.</li>
+          <li><strong>Temporary backfill paths remain unresolved:</strong> at 50/50, temporary paths occur in 1,116 main, 372 tiny, and 434 RF3 lDDT rows. The three corresponding <code>/tmp/backfill_*</code> roots do not exist in the inspected pod. This is distinct from the working private/shared symlink; do not assume the temporary roots resolve through it.</li>
+          <li><strong>Metric-family boundaries matter:</strong> lDDT and RMSD CSVs carry inherited <code>rscc</code> columns that are entirely empty. These are not failed RSCC measurements. Missingness/status validation must use the actual family being imported, not every column that happens to be present.</li>
+          <li><strong>Unexplained missing values exist:</strong> 50/50 lDDT reference-silhouette values are non-finite in 43 main, 1 mini, and 32 RF3 rows, despite empty error fields. Tiny max-RMSD RSCC has 312 missing 50/50 values with recorded errors. RF3 base RSCC has 752 missing 50/50 values, while its max-RMSD file has none. Preserve missingness and available reasons; do not silently substitute a different evaluation context.</li>
+          <li><strong>More than two occupancy entries:</strong> main 50/50 lDDT contains 504 three-entry and 414 four-entry predicted arrays; mini and tiny each contain 168 and 138; RF3 contains 196 and 161. These exports do not label the array entries explicitly. Audit correspondence to reference states before assuming a two-state score or a specific state ordering.</li>
+          <li><strong>Geometry has two member conventions:</strong> clashscore <code>model_id</code> is 1–8, sometimes padded with spaces; bond <code>model_n</code> is 0–7. These are external model labels versus zero-based member indices, not necessarily different ensemble members. The current tradeoff preparation averages each metric over members before combining them; the numbering difference alone does not imply its plotted values are wrong. Explicitly normalize/verify member correspondence before any future member-level join.</li>
+          <li><strong>Different CIF names do not prove different coordinates:</strong> clashscore names <code>nonan.cif</code> and bond summaries name <code>refined-patched.cif</code>. For <code>occ_sweep_results/1VME_0.5occA_0.5occB/boltz2_MD/pure_guidance/ens8_gw0.0</code>, these two files are byte-identical (SHA-256 <code>e582e0f7f7eb729ceeaf3699ec2f3ec5702a694d965c3628b036143dad3bb01f</code>), with eight model labels and 3,239 atom rows per model. This one-trial check corrects the inference of necessarily different preprocessing; it is not a dataset-wide equivalence test.</li>
+          <li><strong>Base/max RSCC is not a duplicate export:</strong> main files share 62,859 trial/selection keys and each has 8,276 unmatched keys; RF3 shares 24,465 and each has 3,220 unmatched keys. Mini/tiny max files are smaller subsets of the base keys, with different scores/status. Some common-score differences are numerical precision only; no equivalence tolerance or automatic conflict resolution was chosen.</li>
+          <li><strong>Sampling-budget inputs were found:</strong> <code>grid_search_results_5mhx_recyc_diff/rscc_results_combined.csv</code> contains 960 rows with explicit recycles {1,3,10} and steps {50,100,200,400}. <code>grid_search_results_6b8x_ensembles/rscc_results.csv</code> contains 640 rows with ensemble sizes {1,2,4,8,16}. Translation can start from these files; their generation history still needs documentation.</li>
+          <li><strong>Archive connection established, not snapshot equality:</strong> <code>_zenodo/MANIFEST.md</code>, generated <code>2026-06-07T06:52:29+00:00</code>, lists eight source archives and MD5 checksums. <code>_zenodo/state.prod.json</code> identifies published record <code>20584989</code>, DOI <code>10.5281/zenodo.20584989</code>. The live CSVs have not been compared with archive contents; archive checksums alone do not prove live/published equivalence.</li>
+          <li><strong>Historical generation metadata remains unresolved:</strong> no <code>job_metadata.json</code> was found in sampled 1VME, 5MHX, and 6B8X trial directories across the five roots. Sampled log headers do not establish evaluator commit, checkpoint, seed, or complete invocation. This bounded check does not prove that no provenance exists elsewhere.</li>
+          <li><strong>Auxiliary inputs still need locations:</strong> the audited root through depth two did not contain <code>classify_altloc_regions.csv</code>, <code>lddt_assignment_counts.csv</code>, or <code>Sampleworks_initial_structures.csv</code>. The observed <code>classify_altloc_selections.csv</code> is selection/input metadata, not classification results. A legacy <code>combined_occ_sweep_results</code> folder also exists; it was not automatically included as another run.</li>
+          <li><strong>Local-input follow-up:</strong> the primary checkout's <code>results/</code> directory contains all three auxiliary files above and <code>lddt_results_rf3_chiral_off.csv</code>. Their contents have not yet been audited or matched to the cluster snapshot. Use this local snapshot for the user's initial reconstruction rather than assume it equals the previously audited cluster sources.</li>
+        </ul>
+        <details>
+          <summary>SHA-256 source fingerprints retained from this audit</summary>
+          <ul><li>Paths below are relative to <code>diffuse/diffuse-shared:raw/sampleworks</code>. These identify inspected file contents, not a chosen persistence schema or a full structure/map snapshot.</li></ul>
+          <pre><code>17cb44c5695afe654a19690a04c52d427a1c59813badca540c39fd5c25d23538  occ_sweep_results/rscc_results.csv
+6277bc8f2b3101217c7a1955736ec373332e5bc0cc4d3409437e6d1c5ab7d185  occ_sweep_results/rscc_results_max_rmsd.csv
+9b44fb470ef149287d3d2b968588e229f8af7c487cdad08166cc5525769a01f0  occ_sweep_results/lddt_results.csv
+9577a94e142c6ca4a5ed60c9e129a7f0043a8542b572b245f8be97452651ffb2  occ_sweep_results/min_altloc_rmsd_results.csv
+07aef99b81a3509537098496c4f3f46fb779a2b83a131597d005eee7cfedc0a2  occ_sweep_results/clashscore_metrics.csv
+f784bfb7336daa2baf91471dba4ff621fe545bc0ff6fba99ac807015d26d39df  occ_sweep_results/bond_angle_violation_fractions.csv
+2c9024e4005252574952382e9b019926349272582ce19d2d55f712d253f4cb45  occ_sweep_results/bond_length_violation_fractions.csv
+1a1ef851c2f99dc1a5b4857ba3d04c56d54ce61992609109891461231e111747  occ_sweep_results_protenix_mini/rscc_results.csv
+bc417e4fc3e7ae9847cc89e2c98527af8471ef63a7a6bfbef7e980289c3b2758  occ_sweep_results_protenix_mini/rscc_results_max_rmsd.csv
+fca0e04ba23a3934446019fbd8dbc0965bdbe91ca89dce811ada8337f8145f05  occ_sweep_results_protenix_mini/lddt_results.csv
+0378b934e0fa7ff921ecdb1fd505f53438eb21a93837e4f83bd406aa7b5422f5  occ_sweep_results_protenix_mini/min_altloc_rmsd_results.csv
+59267ca94f62bca0300dc3248918c9815ae75f1249b34f0eb809f26bfa30114d  occ_sweep_results_protenix_mini/clashscore_metrics.csv
+9a14af504e3817d906daa86e63fabe972ac8b74464c779a8430636075d702a2e  occ_sweep_results_protenix_mini/bond_angle_violation_fractions.csv
+5ae824f87d3a573b1ab103c89b367de0c69ad775e019e9bb2ac73d7dcffff3d5  occ_sweep_results_protenix_mini/bond_length_violation_fractions.csv
+1a780e228d3cfb9fdf1ba33875ddda9eac2a4b6f25ebd70d850de2e8dddbe303  occ_sweep_results_protenix_tiny/rscc_results.csv
+b9251b7257256547649275ff1d0c2d1c54f584d745717d741710f608ee749e47  occ_sweep_results_protenix_tiny/rscc_results_max_rmsd.csv
+fc34995caf968827363f9704e193f6344c292617b00ff91c49c8fb11d601836f  occ_sweep_results_protenix_tiny/lddt_results.csv
+54324489c5ae09ea38f89c4c0b63d92262da77ca8c2a82a08e65495bf6fe7a34  occ_sweep_results_protenix_tiny/min_altloc_rmsd_results.csv
+f5289d2d3d57af8154b4a5d496e6cf9071346700ba7045a0e7e5d98ddbe712ac  occ_sweep_results_protenix_tiny/clashscore_metrics.csv
+861490d8aa3076bf7837f38a8cd9ad2895e904f44f19956f995d063594d7fe99  occ_sweep_results_protenix_tiny/bond_angle_violation_fractions.csv
+78d29c5f0121a1d5b976d09deb37a9acca127f6fb7931452cd3f5e30d447ad93  occ_sweep_results_protenix_tiny/bond_length_violation_fractions.csv
+a3fee49f56a68c45a8e77b2c202e0bf6b4403e126011c5920f1c29d1851e0952  occ_sweep_results_rf3_chiral_off/rscc_results.csv
+4adefbd962ddd554e8ce1fb1c42cbf31717bfe430b8c16f8b9943d4af629b6f1  occ_sweep_results_rf3_chiral_off/clashscore_metrics.csv
+1044b62c80634a596f2a5bef4ddbbdbc4d3dba8890a5f9fd3acbd8d726082150  occ_sweep_results_rf3_chiral_off/bond_angle_violation_fractions.csv
+5e453529f70d7c1571165c45fd97ba01f4578177eb10d8e488f4bcd94db196cd  occ_sweep_results_rf3_chiral_off/bond_length_violation_fractions.csv
+205cb4d6e4e5dd4de739fa42936a8d80996836ce21c8b11e9132cd998e22acfa  occ_sweep_results_rf3_fixed/rscc_results.csv
+9c326336dec81b97c30899a06fc2a03a3f15741dcc3963890a4337a35cc4b5e5  occ_sweep_results_rf3_fixed/rscc_results_max_rmsd.csv
+8cec3d814ce58f834986072b927e232ce502482e15219c211ff37a85fe22c5e7  occ_sweep_results_rf3_fixed/lddt_results.csv
+aef676f1848fcae727251d689ae227c00d0b632a9406d72fcb049671bee916b2  occ_sweep_results_rf3_fixed/min_altloc_rmsd_results.csv
+5cc0461fba0c470fc7b15828f7589c9e6c480b0f373e6f149ad9812f2516b8b6  occ_sweep_results_rf3_fixed/clashscore_metrics.csv
+1f46e8e584b37df3d019ea9aa11b09296ab44c4426c7dc9e4288172ada9e6f5c  occ_sweep_results_rf3_fixed/bond_angle_violation_fractions.csv
+d3d5c09650a0d580881d45d1cf007e2a2f34fdc7bda934642581d12e92a3ad7e  occ_sweep_results_rf3_fixed/bond_length_violation_fractions.csv
+a24810b79f9b95eb8c516af1558228a8806eb3fe2863135d6642a42f95873393  grid_search_results_5mhx_recyc_diff/rscc_results_combined.csv
+fd81d70fec87a5b838548207d8e3940b4c2133d5d88d5f34f1b45930489f5363  grid_search_results_6b8x_ensembles/rscc_results.csv
+6af8fb15f66a8cf824384d56f9a0178ffcc67594322945dce5d10d2856a0b280  initial_dataset_40/proteins.csv
+7197e2c9c42c71fef49d7946f641fb47958f2fcf0892d5626453dfc994e3f3d3  initial_dataset_40_occ_sweeps/proteins.csv
+5e55d6d30649b1138234b046ea99d7d9a1bbd7c6b93e087d04f3cac9e29dba9c  classify_altloc_selections.csv</code></pre>
+        </details>
+      </details>
+    </section>
+
+    <section id="behavior">
+      <h2>Expected behavior</h2>
+      <h3>One understandable startup workflow</h3>
+      <ul>
+        <li>Open the landing notebook, select existing output folders, and inspect recognized exports, inferred metadata, failures, coverage, and unresolved identities. Unknown files are reported as unrecognized rather than silently counted as evaluation data.</li>
+        <li>Use a single saved source configuration for roots and necessary metadata declarations. Source discovery must not depend on randomly renamed per-model files or notebook-specific path lists.</li>
+        <li>If sources overlap, show their original filenames, metadata, representative conflicting records, and the affected analyses. Users can distinguish separate runs or model versions, confirm a repeated export of the same evaluation, or explicitly choose a source where appropriate.</li>
+        <li>Renaming a display label alone must not resolve an identity conflict. Preserve original metadata and record the user's identity assignment and rationale. Never infer “same run” merely from equal metric values.</li>
+        <li>Persist resolutions and source fingerprints. Reopening unchanged data does not ask the same questions again; changed sources trigger revalidation and invalidate decisions that no longer apply.</li>
+        <li>Only publish a validated intermediate artifact after structural conflicts are resolved. Before that, show diagnostics rather than figures from partial or ambiguous results. Scientific notebooks opened directly expose a clear “setup required” state.</li>
+        <li>Never modify source folders. Write only to an explicit workspace-owned output location, and keep the last valid artifact intact if a new import fails.</li>
+        <li>Landing owns source choices and import resolutions; science notebooks own their unsaved controls. The saved handoff identifies the artifact version/content and selected recipe/configuration. Each notebook displays what it loaded; rebuilding data does not silently replace an open notebook's frames. Reload is explicit, and export records the actual rendered data/control state. Unsupported artifact/configuration versions produce an actionable error rather than a silent upgrade.</li>
+      </ul>
+      <h3>Exploration with explicit scientific choices</h3>
+      <ul>
+        <li>Select any combination of available models/model versions and an explicit run for each series. Avoid hardcoded Main/Protenix/RF3 groups as the only way to combine models; paper presets can still use those groups.</li>
+        <li>Expose proteins/regions, occupancy splits, baseline and guided conditions, parameter sweeps, aggregation, inclusion rules, metric choices, and supported thresholds. Offer only choices supported by the loaded measurements.</li>
+        <li>Hover exposes condition and region identifiers plus metric values. Point selection exposes contributing source records, not just a shortened label. Aggregated points reveal all contributors and exclusions; selection uses stable identifiers rather than row positions.</li>
+        <li>Each analysis reports its population: available rows, failed evaluations, missing pairs, join exclusions, model coverage, and final contributing regions/proteins. Missing required data produces a clear unavailable state, never a plausible-looking empty plot.</li>
+        <li>Metric functions are ordinary readable Python. UI controls change parameters; computations requiring unavailable upstream measurements are identified as unsupported, not approximated silently.</li>
+      </ul>
+      <h3>Reproducible paper outputs</h3>
+      <ul>
+        <li>A paper recipe records dataset fingerprint, selected run/model identities, selection policy, metric-definition version, parameters, filtering, aggregation, guidance conditions, and highlights.</li>
+        <li>Preparation produces the final plotted coordinates, uncertainty values, stable point identifiers, contributor membership, and exclusions. Interactive and publication renderers only present those values; neither independently chooses populations or performs scientific aggregation. Export SVGs with a small provenance/recipe sidecar; exploratory outputs must not overwrite pinned paper outputs.</li>
+        <li>A tagged release identifies analysis code and paper recipes and references an immutable dataset artifact or release asset with checksums. A code tag alone is insufficient to identify privately changing source folders.</li>
+        <li>Publishing tags, releases, or data is a later explicitly authorized action. Planning and implementation do not automatically publish anything.</li>
+        <li>First reconstruct the generated paper panels from the existing local <code>results/</code> snapshot and record its file checksums, settings, plotted values, and comparison to the published panel. Work in paper order, starting with Figure 2C's baseline RSCC/clustering distributions. Convert and review each figure interactively before proceeding; do not build the full importer before showing the first reconstruction.</li>
+        <li>A current-code reconstruction is not automatically proof of the historical paper snapshot. Preserve discrepancies for explicit review; incomplete historical metadata can remain visible during exploration without blocking the initial reconstruction.</li>
+      </ul>
+    </section>
+
+    <section id="implementation">
+      <h2>Implementation plan</h2>
+      <h3>Provenance first: plan actl mount access before the importer</h3>
+      <ul>
+        <li><strong>Purpose:</strong> inspect the original RSCC, lDDT, RMSD, and supporting exports in their existing run folders, plus available job metadata, evaluator configuration, and logs. Mounting provides access; it does not establish which code/settings generated historical files.</li>
+        <li><strong>Confirmed source location:</strong> the user identifies <code>/mnt/diffuse-shared/raw/sampleworks/occ_sweep_results*</code>. Discovery confirms namespace <code>diffuse</code>, PVC <code>diffuse-shared</code>, and relative root <code>raw/sampleworks</code>. Inside pods this is typically under <code>/mnt/diffuse-shared</code>; local actl mount defaults to <code>~/astera/diffuse/diffuse-shared</code>. Use the actual reported mountpoint, not a hardcoded machine-specific prefix.</li>
+        <li><strong>Preflight completed:</strong> CLI help/version, namespace access, and PVC listing were checked: <code>diffuse-shared</code> is Bound, NFS-backed, ReadWriteMany, and marked mountable in <code>diffuse</code>. Local sshfs mounting was tested successfully and reused an existing shared mounter pod. No host software installation or new workspace was needed.</li>
+        <li><strong>Agreed read-only workflow:</strong> actl <code>v0.7.7</code> exposes writable mounts. The supported notebooks and importer will only read source files; all intermediates, resolution decisions, temporary files, caches, and figure exports go outside the source mount. Validate resolved output paths, including symlinks, before writing, and test source immutability. This is an application guarantee for the supported workflow, not an OS sandbox against arbitrary edited notebook code or other users/processes.</li>
+        <li><strong>User-driven mount:</strong> when ready to inspect the data, run <code>actl mount diffuse-shared --namespace diffuse</code> in a dedicated user terminal and keep it open. The default local path is <code>~/astera/diffuse/diffuse-shared</code>. Ctrl-C unmounts locally; the shared mounter pod and Secret remain. Creation of those resources is a disclosed side effect, not a workspace/GPU job.</li>
+        <li><strong>Bounded inspection:</strong> inspect only confirmed evaluation roots. Begin with the five <code>occ_sweep_results*</code> directories named by the existing transfer script if they are actually present. Record metric export names, sizes, headers, representative records, and adjacent metadata; identify additional paper inputs separately. Avoid scanning or copying every CIF/map, and do not copy credentials.</li>
+        <li><strong>Provenance record:</strong> identify each source by namespace/PVC/relative path, checksum, and original filename rather than laptop mountpoint. Record available run/model/checkpoint/condition metadata, selection/map/reference context, evaluator version/settings, and status/error conventions. Label each fact as exported, user-declared, inferred, or unknown. The current upstream HEAD is not evidence of a historical evaluator revision.</li>
+        <li><strong>Consistency:</strong> establish whether writers have finished. Hash only the relevant exports, preferably pod-side for large inputs, and check that files did not change during capture. Matching individual file hashes does not by itself establish that separate metric files came from the same run; confirm that association using metadata or the user.</li>
+        <li><strong>Output and performance:</strong> save future inventories, fixture copies, and merged artifacts outside the mount in an explicitly agreed workspace-owned location. Use the local mount for provenance browsing and small artifacts; prefer pod-side access for bulk inspection/hashing rather than repeated high-latency SSHFS traversal. Do not place a writable SQLite artifact on the mounted source share.</li>
+        <li><strong>Exit and handoff:</strong> agree the authoritative source roots, capture a small coherent fixture and a source-to-family/run inventory, and list unresolved identities/settings before importer coding. Disconnect with Ctrl-C when finished; do not delete the shared mounter pod/Secret. Source code remains local; any later pod runtime uses actl sync, not writes through this mount.</li>
+      </ul>
+      <pre><code># Confirmed target; this access path was tested during the audit.
+# Sources are read-only to our workflow; the mount itself is writable.
+actl pvcs --namespace diffuse
+actl mount diffuse-shared --namespace diffuse
+# Keep the mount terminal open; Ctrl-C disconnects locally.</code></pre>
+      <h3>Contract and merged artifact</h3>
+      <ul>
+        <li><strong>Plain-language identity, not a new user taxonomy:</strong> show source folders/files, predictor/variant labels, protein/region, and settings such as occupancy, guidance, and ensemble size. Associate measurements with the prediction output and measurement definition they describe. Keep original fields and unknowns; ask for a source association only when the evidence does not establish it. Do not ask users to invent four new categories before they can see a figure.</li>
+        <li><strong>Terms used internally:</strong> “model version” was planning shorthand for predictor variant/checkpoint, not a guaranteed CSV field; “run” was planning shorthand for an explicitly associated prediction collection, not a single upstream schema entity; “trial” corresponds to the upstream <code>Trial</code> record and exported <code>trial_dir</code>, usually one protein/occupancy/model/settings output; “evaluation context” was our shorthand for how a measurement was made, such as whole-region versus max-RMSD-window RSCC. Prefer actual source fields and concrete descriptions in the UI.</li>
+        <li><strong>Association rule:</strong> the same predicted ensemble can have multiple measurement definitions without becoming a different model. Distinct prediction collections must not be pooled simply because predictor/settings match. User-declared links remain distinguishable from exported evidence; unknown checkpoint/evaluator history is not evidence of equivalence, but may be accepted for labeled exploration.</li>
+        <li><strong>Keep row grain:</strong> RSCC/lDDT/minimum-RMSD are trial-selection results; geometry may be trial-member results; classification and training counts are reference-region annotations. Merge these into one container, not a lossy wide join that multiplies or drops rows.</li>
+        <li><strong>Selection semantics:</strong> preserve original expressions and explicit scope, chain, region identity, and parent/subsegment relationships where supported. Base-region and max-RMSD-window evaluations remain distinct contexts; containment matching is an explicit analysis rule, not an implicit identity rewrite.</li>
+        <li><strong>Typed values:</strong> parse occupancy labels and values, guidance weights, budget parameters, status/error fields, and available classification scores. No exact string-repr occupancy filters or generic “contains chain_id means all altloc” logic.</li>
+        <li><strong>Provenance:</strong> retain source file/checksum/record identity, supplied versus exported metadata, evaluation definition/settings when available, contract version, and resolution decisions. Structure paths are references for future viewing, not keys reconstructed throughout the notebooks.</li>
+        <li><strong>Uniqueness:</strong> validate per-family keys after identity resolution. Consolidate repeated exports only when the evaluation identity is established; different runs remain different even if their scores match.</li>
+        <li><strong>Missingness:</strong> preserve evaluation failures and their errors. Separate legitimate unavailable results from invalid types, conflicting metadata, or failed schema validation. Legacy absence of an error reason remains unknown, not fabricated.</li>
+        <li><strong>Storage approval gate:</strong> the user explicitly deferred the container decision. Bring the audited requirements back to the user and obtain approval before implementing artifact persistence; do not silently choose a format while coding. SQLite remains a recommendation only: one file can hold near-source family tables and provenance/resolutions without a server. A single flat CSV/Parquet needs an explicit mixed-grain or sparse representation; a multi-file bundle is another tradeoff against the requested one-file intermediate.</li>
+      </ul>
+      <h3>Proposed local changes</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>File or surface</th><th>Responsibility</th></tr></thead>
+          <tbody>
+            <tr><td><code>00_start.py</code> — new</td><td>Landing/setup notebook: folder selection, import inspection, interactive identity resolution, persistence, artifact readiness, and links/instructions for scientific notebooks.</td></tr>
+            <tr><td><code>contract.py</code> — new</td><td>Small typed contract records for source/run/model/condition/selection identity and an import report; schema versions, family keys, and validators. No general plugin framework.</td></tr>
+            <tr><td><code>import_pipeline.py</code> — new</td><td><code>inspect_sources</code>, <code>apply_resolutions</code>, <code>build_artifact</code>, and <code>load_artifact</code>: discovery, source hashing, reconciliation, validation, and single-file persistence. Thin UI-independent functions usable in tests.</td></tr>
+            <tr><td><code>loaders.py</code></td><td>Near-source CSV adapters for recognized families. Preserve metadata/status and parse typed fields. Isolate existing CSV/path conventions here; remove hardcoded dataset lists, silent missing-file fallbacks, and scientific filtering from loading. Update or remove all affected callers in the same working commit; do not preserve old loader APIs solely for compatibility.</td></tr>
+            <tr><td><code>metrics.py</code> — new</td><td>Versioned derived-metric and classification functions, including clustering score and geometry penalty. Accept explicit parameters and return auditable values; structural evaluation remains upstream.</td></tr>
+            <tr><td><code>transforms.py</code></td><td>Shared condition selection, baseline pairing, validated joins, region mapping, aggregation, and coverage reports. Never silently combine distinct runs, ensemble sizes, evaluation contexts, or selections.</td></tr>
+            <tr><td><code>02_fit_quality.py</code>, <code>03_tradeoffs.py</code>, <code>04_recycles_steps_ensembles.py</code></td><td>Thin scientific notebooks consuming the artifact and recipes. Remove raw file lists and duplicate frame construction. Keep sampling-budget rendering with explicit unavailable states until its translation is ready.</td></tr>
+            <tr><td><code>plot_distributions.py</code>, <code>plot_scatter.py</code>, <code>plot_classified.py</code>, <code>plot_tradeoff.py</code>, <code>plot_training_bias.py</code></td><td>Retain only approved paper/supplement renderers and useful exploratory views. Add selectable interactive views over the same prepared frames; simplify obsolete label/layout alternatives only after inventory and parity checks.</td></tr>
+            <tr><td><code>style.py</code></td><td>Presentation only. Move paper-specific guidance choices, occupancy filters, dataset paths, and model/run membership to recipes or contract handling; provide sensible presentation defaults for newly imported models.</td></tr>
+            <tr><td><code>recipes/</code>, source configuration</td><td>Small, versioned declarative paper recipes and a separate saved exploratory configuration. Choose a simple serialization in phase 1; avoid a new workflow language. Store machine-specific roots outside release recipes.</td></tr>
+            <tr><td><code>README.md</code>, <code>data_in_each_plot.md</code>, <code>CLAUDE.md</code></td><td>One startup workflow, input/migration documentation, accurate panel-to-recipe catalog, and updated development/validation instructions. Replace obsolete historical inventories rather than append more contradictory notes.</td></tr>
+            <tr><td><code>open_problems.md</code> — later deliverable</td><td>Separate scientific/migration backlog: evidence, unresolved decision, owner/input needed, affected panels, and verification criterion. This planning turn creates only the HTML plan, not this document.</td></tr>
+            <tr><td><code>pyproject.toml</code>, <code>uv.lock</code>, <code>tests/</code>, CI</td><td>Pin a tested marimo version, add only dependencies needed by the chosen interactive renderer/tests, and add small fixtures plus headless and browser checks.</td></tr>
+            <tr><td><code>pull_remote_results.sh</code></td><td>Remove it from the required initial workflow. Preserve it until optional sync is explicitly designed; do not execute remote transfers during this migration.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul>
+        <li><strong>Renderer recommendation:</strong> pilot Plotly through marimo's supported selection interface for hover/selection; retain matplotlib for existing publication SVGs initially. Both renderers receive final coordinates/uncertainty and contributor identifiers, not separate aggregation implementations. Verify API/version support before committing to a backend.</li>
+        <li><strong>Cleanup boundary:</strong> remove unused notebook cells and plotting branches after tracing approved panels. Do not delete authored figure assets, evaluation data, molecular panels, or unrelated files merely because the new pipeline does not render them.</li>
+        <li><strong>Working commits, not a compatibility layer:</strong> use Git history and the existing tagged reference to recover old code. For a loader or shared-analysis change, update all supported dependent notebooks/callers and validate them in that commit; alternatively remove an obsolete notebook and update its documented replacement in the same commit. Supporting current input files is distinct from preserving old code APIs. No parallel legacy implementation is required just to keep old code around.</li>
+      </ul>
+      <h3>Coordinated upstream changes and migration</h3>
+      <ul>
+        <li>In <code>src/sampleworks/eval/eval_dataclasses.py</code> and <code>grid_search_eval_utils.py</code>, carry explicit available run/model-version/condition metadata from job metadata into evaluations instead of losing it during path fallback.</li>
+        <li>Update the existing RSCC, lDDT, RMSD, geometry, classification, and clashscore writer paths to emit their agreed family contract. Locate and verify the clashscore writer before changing it; geometry metadata improvements must cover both clashscore and bond summaries.</li>
+        <li>Prefer additive columns and export metadata describing schema/evaluator/settings; retain current filenames and familiar metric columns. Preserve failure rows consistently and use documented machine-readable occupancy/selection metadata.</li>
+        <li>For existing exports, discover families, parse known legacy encodings once, inspect job metadata when provided, ask for unresolved identity assignments, validate, and produce the same intermediate contract. Never guess missing checkpoints, seeds, or evaluation settings from numerical scores.</li>
+        <li>Specify a simple sampling-budget family extension for explicit recycles, diffusion steps, ensemble size, conditions, selections, and metric/status values. Document known specialized artifacts and missing metadata in <code>open_problems.md</code>; this must not block ordinary evaluation imports.</li>
+        <li>The upstream repository is not attached here. Plan and read it now; before editing, have the user attach the intended repository/revision. GitHub lookup confirms the publication's <code>diff-use/sampleworks</code> link points to the same <code>prism-science/sampleworks</code> repository; determine the historical paper revision separately.</li>
+      </ul>
+      <h3>Initial paper inventory</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Publication surface</th><th>Retained requirement / boundary</th></tr></thead>
+          <tbody>
+            <tr><td>Figure 1; Figure 2 A/B</td><td>Framework/evaluation schematics: retain authored assets, not new data-driven chart code.</td></tr>
+            <tr><td>Figure 2 C</td><td>Baseline RSCC and clustering-score CDFs.</td></tr>
+            <tr><td>Figure 3 B–E</td><td>Guidance/geometry tradeoff; aggregated RSCC and clustering improvement; minimum RMSD to A/B. Audit exact populations, aggregation, and labels.</td></tr>
+            <tr><td>Figure 4 A/B</td><td>Training-bias explainer and training-state versus predicted-state occupancy comparisons.</td></tr>
+            <tr><td>Figure 5 C/D</td><td>Per-predictor RSCC and clustering residual plots with linked highlights.</td></tr>
+            <tr><td>Supplements S2, S7</td><td>Protenix variants and RF3 chiral-feature variant guidance tradeoffs.</td></tr>
+            <tr><td>Supplements S5, S6</td><td>Recycles/diffusion steps and ensemble-size analyses; explicit specialized input schema and deferred translation.</td></tr>
+            <tr><td>Figure 2 D/E; Figure 5 A/B; S1, S3, S4, S8a/b, S9</td><td>Structure/density examples: preserve existing assets and supporting measurements. Mol* replacements require user-provided structures/maps and later acceptance tests.</td></tr>
+            <tr><td>Conformational-class family and other generated alternatives</td><td>Class analyses remain explicitly in scope by user decision. Determine their exact paper/supplement mapping; do not assume every generated alternative is a publication requirement.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="phases">
+      <h2>Implementation phases</h2>
+      <ol>
+        <li><strong>Mounted-source audit: initial pass complete.</strong> The source inventory above establishes cluster exports and open provenance questions. Keep it as migration evidence, not an instruction to replace the repo's chosen <code>results/</code> files or postpone the first figure until historical provenance is complete.<br><strong>Exit:</strong> source locations and current evidence are recorded; remaining historical questions are explicit.</li>
+        <li><strong>Reconstruct the earliest generated paper panels from local results.</strong> Use the existing snapshot at <code>/Users/kyroyo/Downloads/sampleworks_paper/for_team/results</code> read-only; it was found in the primary checkout through the local Git remote, although ignored data is absent from this Delta worktree. Start with Figure 2C, the baseline RSCC/clustering distributions. Record file checksums, notebook controls, exact plotted populations/values, and exported SVGs. Compare against the publication and list discrepancies instead of silently correcting them.<br><strong>Exit:</strong> the user can inspect an initial reconstruction and its underlying values before a full importer is built. Keep code/output edits in the Delta worktree and do not substitute the cluster snapshot without approval.</li>
+        <li><strong>Make that first figure interactive.</strong> Extract final plotted values and coverage into shared analysis functions, add appropriate controls and record inspection, and test the marimo renderer/version. Keep static export using the same prepared values. Use the existing snapshot directly; a merged-artifact storage choice is not a prerequisite to this slice.<br><strong>Exit:</strong> the first reconstructed panel works interactively and statically with matching data, and the commit contains a coherent working set of supported notebooks.</li>
+        <li><strong>Introduce the shared import/setup workflow.</strong> Use the observed figure requirements and audited exports to define plain-language identity choices, input validation, saved resolution scope, and explicit notebook handoff. Bring the deferred storage decision back to the user before implementing persistence. Test startup, restart, changed/relocated sources, unavailable metrics, and deliberate collisions.<br><strong>Exit:</strong> setup produces a validated artifact and the first figure consumes it without hidden data changes. Update affected callers together; do not create legacy compatibility layers solely for migration.</li>
+        <li><strong>Reconstruct and migrate the remaining figures one by one.</strong> Proceed through the generated Figure 3 panels, Figure 4 data panels, Figure 5 data panels, and retained supplements/class analyses. For each, reconstruct from the chosen <code>results/</code> inputs, review population/metric definitions, add interactivity, and verify static parity before removing redundant code. Coordinate upstream additive exports as concrete contract needs emerge.<br><strong>Exit:</strong> each completed figure has a reviewed reconstruction, interactive workflow, coverage report, and publication export. Every commit has working supported code; unavailable sections are explicitly identified.</li>
+        <li><strong>Complete specialized inputs and pin the paper workflow.</strong> Resolve sampling-budget translation and the relevant scientific audit decisions. Generate approved numerical tables/SVGs from frozen recipes and identify data checksums plus code/release references.<br><strong>Exit:</strong> each required data-driven panel is reproduced or explicitly blocked by a named open problem; only fully verified recipes are advertised as paper-reproducible. Release publication requires separate approval.</li>
+        <li><strong>Later: Mol* viewer.</strong> Obtain output ensembles and reference examples; connect stable trial/region selection to structure loading, model/member display, and residue highlighting. Decide map display/alignment requirements with those examples.<br><strong>Exit:</strong> selecting a tested point opens the correct ensemble and region. No structural viewer requirement blocks the initial pipeline.</li>
+      </ol>
+      <ul>
+        <li>Optional integrated sync and downstream production hardening remain outside these core phases. Each can build on the read-only import contract without changing analysis notebooks.</li>
+      </ul>
+    </section>
+
+    <section id="testing">
+      <h2>Testing strategy</h2>
+      <ul>
+        <li><strong>Contract fixtures:</strong> include anonymized/small real examples from each retained family, variant collisions, different runs with equal scores, overlapping exports, missing metadata, explicit failures, malformed occupancies, and base/max-RMSD selection contexts. Synthetic examples supplement—not replace—actual writer outputs.</li>
+        <li><strong>Identity and reconciliation tests:</strong> preserve run/model/checkpoint/method/budget distinctions; consolidate only established duplicates; retain separate runs when renamed interactively; save/reload decisions; detect changed inputs; reject unresolved conflicting keys.</li>
+        <li><strong>Scientific unit tests:</strong> validate baseline pairing without many-to-many amplification, explicit region mapping, mean versus median, minimum-over-members versus aggregation-over-predictors, occupancy denominators including unsupported zero cases, geometry units, threshold boundaries, and failure/coverage counts.</li>
+        <li><strong>Migration integration tests:</strong> legacy and new upstream exports for the same evaluation yield equivalent prepared measurements; geometry joins preserve member grain; classifications/training annotations retain their own context; unrecognized files cannot masquerade as supported exports.</li>
+        <li><strong>Import safety:</strong> source hashes remain unchanged, including failure paths. Reject output/cache/temp destinations inside the resolved source mount, including paths redirected there by symlinks. A failed new import cannot replace a valid artifact. Reloading an artifact is independent of live source availability; changed folders require explicit rebuild, not silent mutation.</li>
+        <li><strong>Notebook execution:</strong> import smoke tests, marimo static checks, and headless execution from fixture artifacts. Exercise direct scientific-notebook startup without setup, missing metric families, and invalid configurations. Keep export side effects in a designated test/scratch location.</li>
+        <li><strong>Browser workflow:</strong> choose folders, inspect collisions, distinguish runs, confirm/save resolutions, restart, select arbitrary models/conditions, hover/select points, inspect contributors, and export. Include aggregated points, sorted/filtered frames, empty selections, and unavailable sections.</li>
+        <li><strong>Renderer parity:</strong> compare final coordinates, uncertainty values, stable point identities, and contributor membership for interactive/publication outputs, then visually review SVG labels/layout. Test unequal examples where subtracting medians differs from taking the median of differences, so renderers cannot silently choose different aggregation orders. Snapshot numerical tables with appropriate tolerances; do not rely on byte-identical SVGs.</li>
+        <li><strong>Commit coherence and handoff:</strong> validate every supported caller when shared loading/analysis changes, rather than retain old APIs for compatibility. Open two scientific notebooks, rebuild the setup artifact, and confirm neither silently switches its loaded data. Explicit reload, restart, saving a configuration, and export must preserve/display the actual artifact and control state.</li>
+        <li><strong>Release reproduction:</strong> from a clean checkout, a pinned recipe and checksummed artifact reproduce approved panel tables and SVGs without private directory-name assumptions. Verify all documented exclusions and release references.</li>
+        <li><strong>Performance check:</strong> measure discovery/import and typical control changes on a representative full dataset before adding caching or concurrency. Avoid re-reading CSVs for every UI change; optimize further only if measurements justify it.</li>
+        <li><strong>Tooling:</strong> use <code>uv</code> for this repository and invoke notebooks through marimo, not <code>python notebook.py</code>. Exact test commands and dependency pins are established with the first implementation slice.</li>
+      </ul>
+    </section>
+
+    <section id="questions" class="questions">
+      <h2>Open questions</h2>
+      <ul>
+        <li><span class="badge">Five slices implemented</span> <strong>Figures 2C and 3B–E:</strong> focused notebooks <code>01_baseline.py</code> through <code>05_min_rmsd.py</code> reconstruct the local snapshot with shared preparation and native legend interaction. Outputs/checksums are in the corresponding <code>figures/fig2c/</code> and <code>figures/fig3b/</code> through <code>figures/fig3e/</code> directories. Figures 3C/D share marginal-median preparation and expose paired model/source records. Figure 3E defaults to the existing median across predictors and offers the caption-described mean as an explicit, historically unverified alternative. Category legends change display, not contributing-model populations. Circled-region figures omit fixed segment text; reconstruction ZIPs bundle SVG, companion highlight table, and recipe. Toolbar SVGs follow the visible view. Scientific definitions and historical archive equivalence remain separate approval gates.</li>
+        <li><span class="badge">Audit complete, follow-up needed</span> <strong>Source provenance:</strong> mounted access and the initial CSV audit are complete; see the observed inventory/fingerprints above. Establish historical checkpoint/seed/evaluator context and live-versus-published snapshot correspondence rather than treating source access as complete reproducibility.</li>
+        <li><span class="badge">Explicit approval gate</span> <strong>Intermediate format:</strong> storage is deferred by user decision. Bring SQLite versus another representation back to the user after reviewing audited requirements and before implementing artifact persistence. Preserve family grain, provenance, and explicit identity regardless of choice.</li>
+        <li><span class="badge">Fixture preparation</span> <strong>Auxiliary data and fixture:</strong> classification, training-assignment counts, and deposition metadata have been located in the primary checkout's <code>results/</code>. Inspect their content when reconstructing the relevant panels and agree where to store small coherent test fixtures before copying. No local fixture dataset has been created.</li>
+        <li><span class="badge">Before upstream edits</span> <strong>Historical release identity:</strong> the publication-linked and requested upstream repositories are the same GitHub repository. Attach it before editing and establish the exact paper-associated commit/release and correspondence to archived code; no paper-associated tag was established by inspection.</li>
+        <li><span class="badge">Scientific audit</span> <strong>Figure 3E:</strong> publication caption says mean across predictors; current code takes the median and requires at least three predictor values. Identify which values produced the published panel before changing the paper or pinned recipe.</li>
+        <li><span class="badge">Scientific audit</span> <strong>Classification:</strong> publication methods describe all-atom lDDT with a 0.75 threshold; current local source is documented as backbone-lDDT. Establish the intended definition and the exported scores available for exploration.</li>
+        <li><span class="badge">Scientific audit</span> <strong>Region/population consistency:</strong> publication methods describe max-RMSD subsegments for RSCC, while the local by-class family uses base-region RSCC. Audit the exact mapping to clustering/RMSD and conformational classes; do not silently replace region contexts.</li>
+        <li><span class="badge">Scientific audit</span> <strong>Clustering definition:</strong> reconcile publication, upstream silhouette calculation, and local occupancy weighting. The source audit also found three/four-entry predicted occupancy arrays for nominal A/B 50/50 maps; establish state labels and the intended scoring population before pinning the recipe.</li>
+        <li><span class="badge">Deferred translation</span> <strong>Sampling budgets:</strong> existing 5MHX exports already contain explicit recycles/steps, and 6B8X exports contain ensemble size. Document their generation history and translation into the contract. Supplement S6's title mentions clustering score, but the current local notebook renders RSCC only; determine the required panels and available lDDT/occupancy data.</li>
+        <li><span class="badge">Inventory audit</span> <strong>Panel assets:</strong> map exact panel sources/highlights and distinguish retained alternatives. Supplemental image assets were not independently verified as complete/downloadable; conformational-class analyses stay in scope without an established exact panel mapping.</li>
+        <li><span class="badge">First vertical slice</span> <strong>Marimo/renderer version:</strong> test selection events, startup persistence, and scientific-notebook handoff; then pin compatible versions. Plotly is a recommendation, not yet a verified integration.</li>
+        <li><span class="badge">Later phase</span> <strong>Mol*:</strong> obtain ensemble/reference examples and decide model/member handling, residue numbering, alignment, local file access, and whether density maps are required. No viewer implementation without these tests.</li>
+      </ul>
+      <ul>
+        <li><strong>Separate backlog deliverable:</strong> create <code>open_problems.md</code> when implementation starts, seeded with these scientific and migration items. Resolve importer-format and initial-fixture choices first; deferred sampling/viewer issues do not block the core pipeline.</li>
+        <li><strong>Planning boundary:</strong> this HTML is the only file created during plan generation. Do not change implementation files or create other planning documents until the user explicitly authorizes implementation.</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

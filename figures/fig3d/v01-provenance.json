@@ -1,0 +1,78 @@
+{
+  "snapshot_sha256": "643df43b3d7eab5af1ee85cc4d3624058b85cb9845f5d29112b0878dffa401cf",
+  "source_files": [
+    {
+      "file": "lddt_results_boltz_protenix.csv",
+      "sha256": "9b44fb470ef149287d3d2b968588e229f8af7c487cdad08166cc5525769a01f0"
+    },
+    {
+      "file": "lddt_results_rf3_fixed.csv",
+      "sha256": "8cec3d814ce58f834986072b927e232ce502482e15219c211ff37a85fe22c5e7"
+    }
+  ],
+  "metric": "clustering_score",
+  "clustering_formula": "min(all predicted occupancy entries) * avg_silhouette_to_ref / 0.5",
+  "status": "Notebook 02 reconstruction; historical paper identity unverified",
+  "models": [
+    "boltz2X-RAY",
+    "boltz2MD",
+    "protenix",
+    "rf3"
+  ],
+  "chosen_guidance_weights": {
+    "boltz2X-RAY": 0.1,
+    "boltz2MD": 0.1,
+    "protenix": 0.1,
+    "rf3": 0.01
+  },
+  "filters": {
+    "map_occupancy": {
+      "A": 0.5,
+      "B": 0.5
+    },
+    "ensemble_size": 8,
+    "minimum_model_rows": 3,
+    "exclude_nan_rscc_proteins": false
+  },
+  "aggregation": "x = median(baseline); y = median(guided) - median(baseline), not median(delta)",
+  "density": "Gaussian KDE per marginal, Scott bandwidth * 0.5, cut=3, gridsize=200",
+  "highlights": {
+    "top": 3,
+    "far_candidates": 3,
+    "decreased": "all",
+    "curated": [
+      "6B8X 181-183",
+      "5MHX 162-164",
+      "5SOP 131-133"
+    ]
+  },
+  "highlight_labels": "No fixed segment text; hover/selection and companion highlighted-region CSV",
+  "export_scope": "Legend controls display only, not contributing models. Toolbar SVG: visible view; reconstruction SVG/CSVs: full fixed main-model analysis.",
+  "caveats": [
+    "The legacy minimum counts paired model rows, including rows with NaN scores.",
+    "Medians retain pandas' NaN-skipping behavior; finite contributor counts are exposed.",
+    "Each marginal KDE excludes non-finite values independently.",
+    "Only regions with finite scatter coordinates are drawn."
+  ],
+  "analysis_sha256": {
+    "region_improvement.py": "3b1236d1c5d625217a5a0fb130a86739be6136ae570b569b764490e07d760436",
+    "loaders.py": "d08bc3154b83a021f182c960f75fd76cb9c0c22b86374e9636b57fc5c65d2ccc",
+    "style.py": "8893bcde2aed2b83f8a54d65beaccfe29e803d7481894d3fba02aa3b04c3204e",
+    "transforms.py": "9b969eaa6aa4fa76474cb0895666f608dbe1f7901b1e0a09ccb4d64a29fcc668",
+    "plot_interaction.py": "e51cc7d345015e0ca883963049b6e21994fdfe3f6d2d9f13e7813eb1a1487603",
+    "04_clustering_improvement.py": "1172f8f93c35ffcf91412b517cec87a0170292a9900dc49f642f32b9bcc8846e",
+    "uv.lock": "8dcb7e1089c200d36d065dca79338076c3fe06d9f676ec02b584b2272f75e20f"
+  },
+  "density_coverage": [
+    {
+      "series": "Baseline",
+      "finite_regions": 791,
+      "status": "drawn"
+    },
+    {
+      "series": "Guided",
+      "finite_regions": 791,
+      "status": "drawn"
+    }
+  ]
+}
