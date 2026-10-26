@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sampleworks evaluation data contract</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #fafaf8; --fg: #232b32; --muted: #52616b; --line: #d0d8dc; --panel: #eef2f3; --accent: #226a75; --question: #fff4db; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #171d22; --fg: #e1e8ec; --muted: #afbdc6; --line: #45535e; --panel: #222c34; --accent: #8cd0d9; --question: #332c1f; } }
+    * { box-sizing: border-box; }
+    body { margin: 0 auto; max-width: 1120px; padding: 36px 28px 80px; background: var(--bg); color: var(--fg); font: 16px/1.65 system-ui, sans-serif; }
+    h1, h2, h3 { line-height: 1.25; }
+    h1 { font-size: 2.2rem; }
+    h2 { margin-top: 0; font-size: 1.7rem; }
+    h3 { margin-top: 28px; }
+    section { margin-top: 36px; padding-top: 24px; border-top: 1px solid var(--line); scroll-margin-top: 24px; }
+    li { margin: 8px 0; }
+    a { color: var(--accent); }
+    nav { display: flex; flex-wrap: wrap; gap: 10px 20px; padding: 16px 0; border-block: 1px solid var(--line); margin-top: 24px; }
+    blockquote { margin: 20px 0; padding: 4px 22px; border-left: 4px solid var(--line); color: var(--muted); }
+    details { margin: 18px 0; padding: 14px 18px; background: var(--panel); border-radius: 6px; }
+    summary { cursor: pointer; font-weight: 650; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .9em; }
+    code { overflow-wrap: anywhere; }
+    pre { padding: 18px; overflow-x: auto; background: var(--panel); border-radius: 6px; }
+    table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: .94rem; }
+    th, td { text-align: left; vertical-align: top; padding: 12px; border: 1px solid var(--line); }
+    th { background: var(--panel); }
+    .table-scroll { overflow-x: auto; }
+    .meta { color: var(--muted); font-size: .9rem; }
+    .notice { padding: 16px 20px; border-left: 4px solid var(--accent); background: var(--panel); }
+    .questions { padding: 24px; border: 2px solid var(--accent); border-radius: 6px; background: var(--question); }
+    @media print { body { max-width: none; padding: 0; font-size: 10pt; } nav { display: none; } section { break-before: auto; } tr, pre { break-inside: avoid; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Sampleworks evaluation data contract</h1>
+    <blockquote aria-label="Original request">
+      <p>I want to establish a reasonable data contract for what needs to come in from sampleworks and what we process here. I would like it to follow the principles of parse, don't validate, as well as the tidy data principles from Hadley of the R project. Right now, you can see some of the existing output CSVs from sampleworks in the results folder.</p>
+      <p>I want to figure out a way to design a robust contract so that we don't have to write a bunch of validation in this repository, but that we can also be flexible in the upstream repository. The way I'm thinking about this is using some sort of Polars data frame situation, or potentially just having data classes in the upstream sampleworks repo for evaluation. Maybe that should be a standard that's agreed upon, but ideally, there are certain things that we're always going to have.</p>
+      <p>We're always going to have a model and the relevant checkpoint, etc., and any other details about that model's specific run. We're going to have a set of guidance parameters that are specific to a guidance method. And then we're also going to have the experimental data that was used to run that specific sampleworks run.</p>
+      <p>So, for example, in one case, we might have Boltz-2, which was run with the MD method conditioning flag. That's a Boltz-specific model setup flag. We might have a specific checkpoint that's associated with it. We might then also have a set of guidance weights for running diffusion posterior sampling, so we might just have a given guidance weight. Then we would have the protein that this was run with, or rather, not the protein, actually the mmCIF file that was provided as input, as well as the experimental data file that was provided.</p>
+      <p>The experimental data, in the long term, could actually be many different files that are all being used in the guidance run. Then we're going to have a separate set of observation variables. For example, in the case of the RSCC evaluation, there would be a column for RSCC, and there actually would need to be a separate RSCC value for each different altloc segment.</p>
+      <p>There will be different sorts of setups for these evaluations. Some of them will be specific to the individual altloc segments, like the subset of the protein that we're looking at that has multiple conformations. In other cases, we will not have that, and we'll be looking at a protein aggregate measure or a measure over a specific experimental data set, or something like that.</p>
+      <p>So these are all the various things that I'm thinking about, and I want to try and develop some sort of reasonable contract that works here between the sampleworks repository, which will be producing the evaluation data files and the sets of observations, and the current repository, which is producing interactive figures for analyzing the data. We should also envision that this repository is going to evolve with the types of figures that we want to build.</p>
+      <p>This repository should accept data that is provided in the specific tidy contract and be able to produce reasonable figures from any sorts of evaluation that you might pass to it.</p>
+    </blockquote>
+    <details>
+      <summary>Refined prompt clarifications</summary>
+      <ul>
+        <li>Use Dataframely for executable tabular schemas and a single parsing boundary, with explicit scientific semantics outside the dtype definitions.</li>
+        <li>Preserve model/checkpoint and guidance-grid workflows while allowing different explicit observational grains for different metric families.</li>
+        <li>Keep guidance parameters method-specific and model flags distinct from experimental-input metadata; do not require a universal guidance weight.</li>
+        <li>Use metric-family tables with named measurements and assess compatibility with interactive plotting routines.</li>
+        <li>Use Parquet transport without requiring an immediate rewrite of the existing pandas analysis.</li>
+        <li>Maintain a minimal registry here and devise a repository-local agent skill for adding new observations and tidy datasets.</li>
+        <li>Use Diffly to compare overlapping exports when composing compatible datasets from separately executed model or guidance batches.</li>
+        <li>This consumer repository owns the authoritative contract, exposed as a small versioned package that Sampleworks can import independently.</li>
+        <li>Cover all currently consumed metric families and supporting reference tables from the outset.</li>
+        <li>Record evaluation outcomes separately from successful measurements, including partial failures at the attempted measurement's scope.</li>
+        <li>Append new observation keys, deduplicate identical observations, and reject conflicting overlaps without silent replacement or averaging.</li>
+        <li>Permit explicitly unknown legacy provenance, warn visibly, and allow users to record source descriptions and Sampleworks versions without disguising uncertainty.</li>
+        <li>Place reusable contract, registry, parsing, composition, and compatibility functionality in one small importable package alongside the unchanged current pipeline; migrate notebooks later.</li>
+        <li>Identify artifacts by file-content digest, retaining paths as locations; permit explicitly unknown identity for legacy artifacts.</li>
+        <li>Support noncontiguous and multichain regions using explicit membership tied to reference structures and human-readable labels.</li>
+        <li>Retain selection text and its syntax, chain-identifier namespace, sequence-numbering namespace such as label_seq_id or auth_seq_id, and other necessary mmCIF interpretation context.</li>
+        <li>Let users select baseline/reference configurations explicitly, with documented defaults for recognized methods rather than a universal weight-zero rule.</li>
+      </ul>
+    </details>
+    <p class="meta">Generated <time datetime="2026-10-26T20:09:16Z">2026-10-26T20:09:16Z</time>. Detailed Default template; no template was selected during Q&amp;A. Status: proposed implementation, not implemented.</p>
+  </header>
+  <nav aria-label="Plan sections">
+    <a href="#overview">Overview</a>
+    <a href="#behavior">Expected behavior</a>
+    <a href="#implementation">Implementation plan</a>
+    <a href="#phases">Implementation phases</a>
+    <a href="#testing">Testing strategy</a>
+    <a href="#questions">Open questions</a>
+  </nav>
+  <main>
+    <section id="overview">
+      <h2>Overview</h2>
+      <ul>
+        <li><strong>One consumer-owned package:</strong> add <code>sampleworks-contract</code>, imported as <code>sampleworks_contract</code>, in a separately buildable <code>contract/</code> subproject. Sampleworks depends on a pinned contract release or revision. Neither installing nor importing it loads notebooks, matplotlib, local results, or paper-specific style constants.</li>
+        <li><strong>One parsing boundary:</strong> Dataframely schemas and a small bundle parser establish types, keys, and relationships before consumers use data. The package returns parsed datasets, not booleans that callers must remember to check. Cross-table and scientific checks not expressible in schema declarations remain centralized boundary logic.</li>
+        <li><strong>Tidy at an explicit grain:</strong> distinguish executions, artifacts, evaluation executions, regions, reference conformations, and metric-family observations. Model/guidance grid axes are run metadata, not a universal observation identity. Do not replace all metric columns with a generic metric-name/value table or all scopes with nullable columns.</li>
+        <li><strong>Small registry, not a plugin platform:</strong> an explicit mapping connects family name/version to schema and scientific definition. Derive column types and primary keys from schemas. Plot compatibility requirements belong to plotting adapters. No discovery machinery, arbitrary expressions from manifests, or executable imports named by input data.</li>
+        <li><strong>Incremental adoption:</strong> design and test every consumed family now, leaving all three notebooks and existing loaders untouched. This change creates an interoperability foundation and demonstrable compatibility checks, not automatic scientific figure generation or a rewritten analysis application.</li>
+      </ul>
+      <h3>Evidence from this repository</h3>
+      <ul>
+        <li><code>loaders.py:27–54</code> extracts identity and guidance settings from directory names; <code>loaders.py:153–185</code> needs model overrides; <code>loaders.py:371–422</code> reparses serialized occupancy arrays/dicts.</li>
+        <li><code>03_tradeoffs.py:150–188</code> disambiguates geometry models after parsing filepaths. <code>transforms.py:59–93</code> pairs baseline observations using a small subset of run metadata; the new package must not copy that assumption as a general contract.</li>
+        <li>The primary checkout's real <code>results/</code> was inspected read-only. Mini/tiny RSCC files both say <code>model=protenix</code>; their schemas omit checkpoint identity. Clashscore's <code>model_name</code> and bond statistics' <code>model</code> carry paths. Occupancy values are stringified Python/NumPy structures.</li>
+        <li>The 5MHX sweep contains 960 rows over recycles 1/3/10 and steps 50/100/200/400. The 6B8X sweep contains 640 rows over ensemble sizes 1/2/4/8/16. These must fit the same RSCC family as ordinary guidance sweeps, without special loader functions.</li>
+        <li><code>results/</code> is ignored and absent in the Delta checkout. Tests must use small checked-in fixtures, never require a developer's primary-checkout path, and never commit the full results directory.</li>
+      </ul>
+      <h3>Responsibility boundary</h3>
+      <pre aria-label="Producer consumer architecture"><code>Sampleworks
+  resolved run configurations + artifacts + evaluators
+              |
+              v
+  shared contract constructors / export checks
+              |
+              v
+  versioned manifest + tidy Parquet tables
+              |
+              v
+sampleworks_contract: parse and establish invariants
+              |
+              +---- compare / compose compatible batches
+              |
+              v
+  explicit analysis selection and pairing
+              |
+              v
+  compatible plotting adapter (notebook migration later)</code></pre>
+      <ul>
+        <li><strong>Sampleworks:</strong> resolve selections and model/guidance configuration, retain output-member identity, compute scientific observations, record evaluator/reference provenance and failures, and export against a pinned package version.</li>
+        <li><strong>Contract package:</strong> define supported interchange semantics, parse/export bundles, establish identities/relationships, compose observations, and explain compatibility.</li>
+        <li><strong>Analysis:</strong> choose cohorts, baselines, aggregation, derived scores, model grouping, colors, highlights, and layouts. Current 50/50 occupancy filtering and optimal-guidance choices remain analysis policy.</li>
+      </ul>
+    </section>
+    <section id="behavior">
+      <h2>Expected behavior</h2>
+      <h3>Bundle and extension rules</h3>
+      <ul>
+        <li>A bundle has a JSON manifest and named Parquet tables. The manifest declares the contract version, export identity, available metric families/versions, producer provenance, and relative table locations. Input tables are data, never code.</li>
+        <li>The manifest lists tables actually present; absence means no observations supplied, not an implicit failure, zero, or empty successful evaluation. An unsupported required contract/family version produces a clear error. Do not guess compatibility from matching column names.</li>
+        <li>Known table schemas are explicit. Check unexpected columns before Dataframely validation, which otherwise removes them. Preserve upstream-specific configuration in designated, namespaced configuration fields rather than silently discarding columns or widening schemas during import.</li>
+        <li>Model and guidance configurations carry method/type identifiers, configuration versions, and resolved JSON objects. Typed parsing of recognized methods exposes analyzable parameters. Unknown method configuration remains preserved provenance, but does not gain fabricated typed plotting axes.</li>
+        <li>Do not stringify observation arrays: predicted occupancy and per-altloc RMSD/counts use rows with explicit conformation identifiers. Structured configuration is metadata, not an excuse to hide repeated measurements in JSON.</li>
+        <li>Parquet files alone do not prove key uniqueness, foreign keys, finiteness, or scientific equivalence. Parsing establishes these guarantees once; serialization carries versions and definitions, not a magical persistent type proof.</li>
+      </ul>
+      <h3>Shared entities and identity</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Entity/table</th><th>One row and required meaning</th><th>Identity and safeguards</th></tr></thead>
+          <tbody>
+            <tr><td>Runs</td><td>One actual model execution: model family/variant, checkpoint reference, resolved model configuration, guidance configuration, sampling configuration, seed when available, and producer revision.</td><td>Upstream-assigned stable run ID survives re-export. Repeating the same configuration is a different execution, not a duplicate. Configuration identity and run identity are distinct.</td></tr>
+            <tr><td>Artifacts and locations</td><td>One exact file artifact and its known digest; separate location rows record paths/URIs. Model checkpoints are artifacts too when their bytes or immutable digest are known.</td><td>SHA-256 of exact bytes for known identity; paths are not identity. Byte-different but scientifically equivalent files remain distinct unless explicitly related. Legacy unknown digests use scoped opaque IDs, never shared sentinel IDs.</td></tr>
+            <tr><td>Run inputs and outputs</td><td>One association of a run with an artifact and role; output associations identify individual members and ensembles. Multiple guidance-data inputs and checkpoints are allowed without numbered columns.</td><td>Roles distinguish input structure, guidance data, auxiliary input, and generated/postprocessed output. Preserve membership; an ensemble is not interchangeable with one member or a refined derivative.</td></tr>
+            <tr><td>Evaluations and references</td><td>One evaluator execution with its implementation/version, resolved configuration, and references. Reference associations distinguish guidance input from evaluation reference, including references composed of multiple files.</td><td>Stable evaluation ID survives re-export. Reference-context identity incorporates artifact roles and relevant interpretation settings, such as map columns or masks. Different evaluators/references can coexist without being treated as interchangeable.</td></tr>
+            <tr><td>Regions and members</td><td>One named structural subset tied to a reference artifact; membership rows resolve exact selected atoms, from which residue membership can be exposed.</td><td>Explicit membership supports noncontiguous and multichain sets. Known membership identifies atom-site records within the exact reference artifact; human labels and selection text are not the key.</td></tr>
+            <tr><td>Reference conformations</td><td>One reference conformation within a defined region/context, with occupancy when known.</td><td>Altloc labels are local to that context, not globally meaningful A/B classes. Allow more than two conformations and distinguish a region containing altlocs from an observation resolved by altloc.</td></tr>
+            <tr><td>Provenance annotations</td><td>One recorded or user-supplied fact/source description with its source and attribution.</td><td>Preserve original facts, unknowns, and later assertions separately. Supplying a note must not rewrite execution identity or pretend unknown metadata was observed at generation time.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>Selection interpretation is part of provenance</h3>
+      <ul>
+        <li>Store original selection text, selection language/dialect and version, reference artifact, chain namespace (<code>label_asym_id</code> versus <code>auth_asym_id</code>), residue namespace (<code>label_seq_id</code> versus <code>auth_seq_id</code>), insertion-code handling, model-number restriction, and altloc/atom filters.</li>
+        <li>For new exports, Sampleworks resolves selections against the referenced mmCIF and exports explicit membership. Canonical atom membership can use the exact artifact's <code>_atom_site.id</code>, retaining model number and both author/label identifiers for explanation and residue-level analysis.</li>
+        <li>Do not equate author and label numbering, discard insertion codes, assume chain IDs are one character, infer atom membership from a display range, or require label sequence IDs for nonpolymer atoms.</li>
+        <li>Legacy unresolved selections remain explicitly unresolved. They can be displayed and retained, but operations requiring proven region equality or reference alignment report the missing guarantee rather than reparsing strings with a guessed namespace.</li>
+      </ul>
+      <h3>Metric families and supporting data</h3>
+      <ul>
+        <li>Each family declares its versioned scientific definition, row grain, target/reference relationships, named measurement columns, units, and improvement direction where meaningful. Schemas define column dtypes and primary keys once; grain documentation explains their scientific interpretation.</li>
+        <li>Each family has a separate outcome table at its own attempted-measurement grain. Outcomes carry attempt ID, evaluation ID, family-specific scope keys, status, and failure/not-applicable reason. Successful measurement rows reference successful attempts; failed attempts cannot acquire invented numerical values.</li>
+        <li>Scopes do not all require runs: reference classification and training-cluster assignment are legitimate evaluations of reference data. Avoid forcing a fake model/checkpoint onto those observations.</li>
+      </ul>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Family</th><th>Declared observational grain</th><th>Named data / semantics</th></tr></thead>
+          <tbody>
+            <tr><td>Regional RSCC</td><td>Evaluation × evaluated ensemble/output × region × experimental reference context</td><td><code>rscc</code>, dimensionless. Separate segments are separate rows; not necessarily separate altloc-specific measurements. Base and max-RMSD sources differ through explicit region/evaluator definitions.</td></tr>
+            <tr><td>Clustering summaries</td><td>Evaluation × ensemble × region × reference-conformation set</td><td><code>avg_silhouette</code>, <code>avg_silhouette_to_ref</code>, dimensionless. Name these as clustering summaries, not ordinary lDDT scores. Preserve clustering/assignment method.</td></tr>
+            <tr><td>Predicted occupancies</td><td>Evaluation × ensemble × region × reference conformation</td><td><code>predicted_occupancy</code>, fraction. Group-level sum/coverage rules follow the declared assignment method, including unassigned members if permitted.</td></tr>
+            <tr><td>Minimum altloc RMSD</td><td>Evaluation × ensemble × region × reference conformation</td><td><code>min_rmsd</code>, ångströms. Specify alignment, atom selection, and ensemble reduction. Replace fixed A/B columns with conformation rows.</td></tr>
+            <tr><td>Member clashscore</td><td>Evaluation × evaluated structure member</td><td><code>clashscore</code> and <code>num_clashes</code>. Define evaluator, hydrogen/protonation treatment, and score normalization; retain raw counts.</td></tr>
+            <tr><td>Bond violations</td><td>Evaluation × evaluated structure member</td><td>Separate named angle and length violation fractions with explicit denominator and outlier definitions. Keep independent outcomes when either evaluator fails; combine for analysis only when paired.</td></tr>
+            <tr><td>Training-cluster assignment</td><td>Reference-cluster evaluation × region × reference conformation; separate region-level summary</td><td><code>n_assigned</code> per conformation; summary <code>n_cluster_evaluated</code> and any explicitly defined unassigned count. Preserve cutoff, cluster construction, assignment rule, and reference identity.</td></tr>
+            <tr><td>Region annotations</td><td>Classification evaluation × region</td><td>Conformational-change class and method/threshold provenance; optional backbone-lDDT diagnostics. Unknown future class labels require definitions rather than paper-specific hardcoded meaning.</td></tr>
+            <tr><td>Reference occupancies and structure metadata</td><td>Region/context × conformation; separate structure-artifact metadata</td><td>Reference occupancy fractions, structure/PDB labels, deposition date and source. Pre/post-training-cutoff is derived from a selected model's cutoff, not a universal property of a protein.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul>
+        <li>Clustering score, baseline deltas, minimum predicted occupancy, training fractions, guidance-strength buckets, and across-model medians remain named downstream derivations. Their formulas are documented but are not confused with exported raw evaluator measurements.</li>
+        <li>Contract rules enforce finite successful numbers, nonnegative counts/RMSD, valid fractions and method-defined group relationships. NaN is not an undifferentiated failure flag. Rules must reflect the evaluator, not assumptions from one paper.</li>
+      </ul>
+      <h3>Parsing, composition, and unknown provenance</h3>
+      <ul>
+        <li>Parsing checks supported versions, expected columns, schema rules, identity uniqueness, foreign keys, evaluation outcomes, and family scope consistency. Collect lazy validation before returning a dataset represented as successfully parsed. Never use Dataframely soft-filtering to silently salvage rows.</li>
+        <li>Typed frame annotations alone do not prevent arbitrary Polars mutation. Package dataset construction is internal; expose query/projection operations that do not silently preserve invalid guarantees. Re-establish invariants at composition and export boundaries, not inside every plot.</li>
+        <li>Compatible bundles may contain different models, guidance grids, reference contexts, and evaluator definitions. Composition preserves those distinctions; comparison eligibility is evaluated separately. It does not force measurements onto a complete Cartesian product or manufacture missing rows.</li>
+        <li>Use Diffly on intersecting primary keys to explain differences and Polars to perform explicit unions. Append new keys, deduplicate exact scientific observations, and reject conflicting values or scientific identity metadata. Merge location/source annotations separately so relocated files do not create measurement conflicts.</li>
+        <li>Equality for deduplication is exact after canonical schema parsing. Numerical tolerances are reporting tools, not permission to replace different measurements. Preserve independent runs/re-evaluations rather than deduplicating on model, guidance, and protein labels.</li>
+        <li>Unknown IDs are scoped to a source export/import identity; repeated import of the same retained source identity is idempotent. Two unknown checkpoints, references, or numbering schemes are not equal merely because both are missing. Do not infer cross-export duplicate execution identity from configuration resemblance.</li>
+        <li>Legacy import reports missing facts and supports saved user-supplied provenance, including Sampleworks revision/version and a source description. Interactive skill usage asks for available context; library parsing remains noninteractive, emitting warnings and returning a structured provenance report. Require specific missing facts only for operations needing them.</li>
+        <li>Raw legacy artifacts remain unchanged. Legacy import is an explicit adapter, never a path-guessing fallback in the standard parser. Model overrides and historical path conventions remain isolated and visible in the import report.</li>
+      </ul>
+      <h3>Plot compatibility without automatic scientific inference</h3>
+      <ul>
+        <li>A small requirement description states needed family/definition, measurement columns, units, grain, reference alignment, provenance guarantees, pairing keys, and any explicit reduction. Return compatible/incompatible with actionable reasons, including matched/unmatched counts.</li>
+        <li>Users select baseline/reference configurations. Known-method defaults are explicit suggestions, not hidden weight-zero behavior; heterogeneous configuration fields are exposed as typed axes only for recognized configuration schemas.</li>
+        <li>Before a paired comparison, require equal intended cohort/reference scope and a declared policy for seeds/repeats. Detect ambiguous one-to-many pairings and empty intersections; never allow an accidental many-to-many join or silently average replicates.</li>
+        <li>Initial deliverable includes requirement examples for distributions, paired baseline-versus-guided comparisons, and guidance trajectories. It does not auto-render arbitrary metrics, port all figures, or embed plot callbacks into the metric registry.</li>
+      </ul>
+    </section>
+    <section id="implementation">
+      <h2>Implementation plan</h2>
+      <h3>Package layout and responsibilities</h3>
+      <pre><code>contract/
+  pyproject.toml
+  src/sampleworks_contract/
+    __init__.py
+    schemas.py
+    registry.py
+    bundle.py
+    io.py
+    compose.py
+    compatibility.py
+    legacy.py
+  tests/
+    fixtures/
+    test_contract.py
+    test_composition.py
+    test_compatibility.py
+    test_legacy.py
+  docs/
+    contract.md
+    producer-guide.md
+.agents/skills/add-evaluation-dataset/SKILL.md</code></pre>
+      <ul>
+        <li><code>contract/pyproject.toml</code>: independently buildable distribution using <code>uv_build</code>; runtime dependencies Polars, Dataframely, and Diffly; test dependencies isolated in a development group. Match the repository's Python support initially. Do not add pandas, plotting libraries, or a dependency on the root project. Establish compatible dependency bounds with real API tests rather than assuming the latest documentation matches an arbitrary version.</li>
+        <li><code>schemas.py</code>: Dataframely declarations for shared tables, all listed metric families, and family-specific outcomes; small schema constructors for method configurations and manifest metadata. Reuse genuinely identical columns/constraints, not a universal optional-column base.</li>
+        <li><code>registry.py</code>: explicit versioned family definitions and scientific metadata. Include names, meanings, units, and direction where meaningful. Schema declarations remain the source of truth for dtypes and primary keys. Add only the configuration parsers actually needed for current exports, preserving other namespaced configuration as uninterpreted metadata.</li>
+        <li><code>bundle.py</code>: parsed dataset representation, identity helpers, structured provenance/import reports, and centralized cross-table invariant establishment. Keep validation capabilities internal; avoid exposing a public constructor that labels unchecked frames as parsed.</li>
+        <li><code>io.py</code>: noninteractive <code>read_bundle</code>/<code>write_bundle</code> entry points, manifest parsing, version dispatch, unexpected-column checks, and Parquet transport. Resolve only declared safe relative table paths; reject traversal/absolute locations for bundle tables. Artifact URIs remain provenance and are not automatically fetched or executed.</li>
+        <li><code>compose.py</code>: <code>compose_bundles</code> with an explicit composition report. Distinguish observation conflicts from mergeable locations/annotations; reject identity collisions in supporting tables as well as measurements. Validate the combined graph after union, since individually valid tables can conflict when combined. No partial successful output on a reported conflict.</li>
+        <li><code>compatibility.py</code>: small requirement/result types and compatibility/pairing checks. Require explicit aggregations and replicate policy. No plotting imports, rendering engine, or framework of arbitrary transformation callbacks.</li>
+        <li><code>legacy.py</code>: opt-in import functions for the finite current CSV families, producing a standard bundle plus a report and supplied-provenance annotations. Do not modify <code>loaders.py</code> or invent missing checkpoints/member mappings. Preserve raw source identity, unresolved selections, and known filename-based model disambiguation.</li>
+        <li><code>__init__.py</code>: narrow public API for reading/writing, composition, family discovery, compatibility assessment, and explicit legacy import. Keep schemas importable by producers without importing legacy adapters or analysis dependencies.</li>
+        <li><code>contract/docs/contract.md</code>: exact table catalog, row-grain/identity specification, measurement semantics, outcome invariants, extension policy, version compatibility rules, and minimal bundle examples for all families.</li>
+        <li><code>contract/docs/producer-guide.md</code>: Sampleworks integration points, stable ID lifecycle, resolved selection export, content hashing, incremental exports, failures, and user-supplied historical provenance. Explain how to depend on the package from this repository without importing the notebooks.</li>
+      </ul>
+      <h3>Agent skill and minimal registry workflow</h3>
+      <ul>
+        <li>Check for an existing project skill or overriding <code>.delta/skills</code> entry before creating <code>.agents/skills/add-evaluation-dataset/SKILL.md</code>. The skill is project guidance, not an executable runtime dependency.</li>
+        <li>The skill first asks what one row measures, which entity/reference it concerns, what method produced it, and how failure differs from absence. Inspect a small source sample rather than guessing semantics from filenames.</li>
+        <li>Reuse a family when meaning and grain match; add a family/version only when they differ. Identify repeated dimensions, units, IDs, reference alignment, numerical domain, and needed configuration/provenance. Keep human decisions visible.</li>
+        <li>Add the smallest schema/registry definition, producer-facing example, successful and failed fixtures, and at least one compatible and one incompatible analysis case. Exercise overlap deduplication/conflicts when the new family can be composed.</li>
+        <li>Do not publish packages, edit an unattached Sampleworks checkout, fabricate historical metadata, migrate notebooks, or silently resolve conflicting observations as part of the skill. Human review remains required for scientific definitions.</li>
+      </ul>
+      <h3>Versioning and non-goals</h3>
+      <ul>
+        <li>Keep package version, bundle contract version, family definition version, configuration schema version, and evaluator implementation version conceptually distinct. A dtype-compatible change can still alter scientific meaning and require a new family definition/version.</li>
+        <li>Start with one supported contract version and explicit rejection of unsupported required versions. No migration framework, permissive auto-upgrading, schema service, plugin discovery, or separate contract repository is needed now.</li>
+        <li>Do not add a dashboard, general workflow engine, distributed store, live artifact downloader, universal ontology, or arbitrary-metric plotting promises.</li>
+        <li>Do not change <code>02_fit_quality.py</code>, <code>03_tradeoffs.py</code>, <code>04_recycles_steps_ensembles.py</code>, <code>style.py</code>, existing plotting helpers, current CSVs, or current figure outputs. No update to the per-figure specification is required until a figure's actual data path changes.</li>
+      </ul>
+    </section>
+    <section id="phases">
+      <h2>Implementation phases</h2>
+      <ol>
+        <li><strong>Freeze the semantic catalog and examples.</strong> Map all consumed CSV families and supporting tables to explicit grains. Confirm evaluator-specific details against Sampleworks or user-provided provenance. Write the version-one table/identity/outcome specification and tiny fixtures, clearly distinguishing measured facts from unresolved historical assumptions. Verify the 5MHX/6B8X sweeps fit ordinary RSCC without special-case schemas.</li>
+        <li><strong>Build the standalone package and parsing boundary.</strong> Implement schemas, manifest/version parsing, shared identity/reference relationships, finite measurement/outcome rules, and read/write round trips for every family. Demonstrate clean installation/import without the root notebook environment. A valid fixture bundle is usable; malformed data cannot become a parsed dataset.</li>
+        <li><strong>Add composition and compatibility.</strong> Implement Diffly conflict diagnostics, explicit unions, supporting-table reconciliation, and post-composition invariants. Demonstrate the two-model-plus-new-model scenario, repeat-run preservation, and baseline pairing without many-to-many expansion.</li>
+        <li><strong>Add explicit legacy ingestion and provenance assistance.</strong> Map small samples from current families without fabricating missing metadata, warn/report unknowns, persist attributed user descriptions, and show that affected comparisons are unavailable for specific reasons. Do not route existing notebooks through these adapters yet.</li>
+        <li><strong>Document producer integration and add the skill.</strong> Complete examples for all families and guide an agent/user through one new fixture family in a test exercise. Run package tests/build/import checks and the existing import smoke test. Leave notebook migration and upstream exporter implementation as separately authorized changes.</li>
+      </ol>
+    </section>
+    <section id="testing">
+      <h2>Testing strategy</h2>
+      <ul>
+        <li><strong>Contract fixtures:</strong> tiny valid bundles cover every family, multichain/noncontiguous regions, more than two altlocs, multiple experimental input files, member and ensemble targets, reference-only evaluations, model variants/checkpoints, different guidance configurations, and dedicated sampling sweeps.</li>
+        <li><strong>Boundary rejection:</strong> missing/wrong/extra columns, unsupported versions, duplicate keys, broken references, identity collisions, nonfinite successful measurements, invalid fractions/counts, inconsistent outcomes, unsafe table paths, and malformed method configurations fail before a parsed dataset is returned. Verify eager and lazy paths establish identical guarantees.</li>
+        <li><strong>Selection identity:</strong> author/label chain and sequence IDs differ; insertion codes, multicharacter chains, multiple models, altloc filters, and nonpolymer atoms survive round trips. Same display label with different membership is not the same region. Unresolved legacy text is never promoted to canonical membership.</li>
+        <li><strong>Artifact identity:</strong> moved files with identical bytes share known identity and retain both locations; changed bytes produce different identities. No automatic equivalence of differently encoded files. Independent unknown artifacts never collapse into a common null key.</li>
+        <li><strong>Composition:</strong> append a third model to an existing two-model dataset; same retained bundle imported twice is idempotent; conflicting overlaps reject with exact keys/differences; independent repeats remain distinct; different references/evaluator definitions coexist but are not paired by default. Check order independence, observation preservation, and no partial output on failure.</li>
+        <li><strong>Unknown provenance:</strong> missing checkpoint, producer revision, or numbering context emits a warning and structured report. Saved user assertions retain attribution, do not overwrite recorded facts, and do not grant unrelated guarantees. No interactive prompt occurs inside library calls. Standard parsing does not fall back to legacy conventions.</li>
+        <li><strong>Failures and coverage:</strong> nine successful regions and one failed region retain ten outcomes and nine measurements. All-failed exports, not-applicable scopes, absent/unrequested observations, independent angle/length failures, and partial conformation coverage are distinguishable.</li>
+        <li><strong>Compatibility:</strong> positive and negative examples for each requirement shape, including empty intersections, conflicting units, distinct RSCC references, ambiguous replicate pairing, absent baseline, and insufficient legacy provenance. No silent aggregation or dropped unmatched rows.</li>
+        <li><strong>Packaging:</strong> test the built wheel in an isolated environment, verify runtime dependencies and import without notebooks/style/results, and verify all expected family registrations and documentation are shipped. Exercise the pinned Dataframely/Diffly APIs; do not infer guarantees solely from annotations.</li>
+        <li><strong>Existing pipeline:</strong> run the exact fast import smoke test below. Full notebook execution is not required for an additive package that leaves notebook code unchanged; state that omission explicitly. Any later notebook migration must use the documented marimo export-script execution check.</li>
+      </ul>
+      <pre><code>uv run --project contract pytest contract/tests
+uv build --project contract --out-dir contract/dist
+uv run python -c "import style, loaders, transforms, plot_distributions, plot_scatter, plot_classified, plot_tradeoff, plot_training_bias"</code></pre>
+      <ul>
+        <li><strong>Definition of the first deliverable:</strong> every consumed family has a specified and tested schema; a standard producer bundle parses and round-trips; separate exports compose without losing identity; incompatible analysis requests explain why; legacy uncertainty stays visible; and existing notebook files are unchanged. These are future implementation checks, not claims that implementation already exists.</li>
+      </ul>
+    </section>
+    <section id="questions" class="questions">
+      <h2>Open questions</h2>
+      <ul>
+        <li><strong>Upstream semantics need confirmation:</strong> the Sampleworks repository is not attached. Before locking evaluator definitions, confirm RSCC map-generation/selection conventions, output/refinement lineage, RMSD alignment, clustering assignment coverage, geometry denominators, and training-cluster definitions. Do not manufacture answers from consumer column names.</li>
+        <li><strong>Stable execution IDs in upstream:</strong> confirm whether Sampleworks already persists run/evaluation/member IDs or must add them. Proposed default: producer-issued stable IDs, preserved across export; independently repeated execution gets a new ID. Historical imports retain source-scoped IDs without claiming cross-export execution equivalence.</li>
+        <li><strong>Historical region resolution:</strong> explicit numbering namespaces and membership may require the original reference mmCIF files. If unavailable, use the agreed unresolved-legacy route and restrict only operations needing proven region/reference equality; do not guess author versus label numbering.</li>
+        <li><strong>Package distribution:</strong> repository ownership and independent import are agreed; choose the actual release channel when integrating Sampleworks. An immutable Git revision/subdirectory dependency can precede a package-index release. Publishing requires separate authorization.</li>
+        <li><strong>Repeat pairing:</strong> the default is to reject ambiguous pairings, not average. Each future plot must choose matched-seed pairing, another explicit replicate mapping, or a stated aggregation before comparisons can proceed.</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>
