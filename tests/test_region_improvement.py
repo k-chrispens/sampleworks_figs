@@ -155,7 +155,7 @@ class RsccImprovementTest(unittest.TestCase):
             self.assertEqual(len(manifest["source_files"]), 2)
             self.assertEqual(before, {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in root.iterdir()})
 
-    def test_clustering_uses_same_medians_with_its_own_far_candidate_count(self):
+    def test_clustering_uses_shared_coordinates_and_retains_score_components(self):
         data = frame().rename(columns={"rscc": "clustering_score"})
         data["occupancies"] = "[0.5 0.5]"
         data["avg_silhouette_to_ref"] = data.clustering_score
@@ -170,6 +170,21 @@ class RsccImprovementTest(unittest.TestCase):
         self.assertIn("Clustering score", static.axes[1].get_xlabel())
         self.assertIn("Clustering score", interactive.layout.xaxis2.title.text)
         self.assertEqual(len(static.axes[0].texts), 0)
+
+    def test_far_candidate_count_is_three_for_clustering_and_five_for_rscc(self):
+        data = pd.concat([
+            frame([value] * 4, [value] * 4, protein=f"p{i}")
+            for i, value in enumerate([.1, .2, .3, .4, .5, .6])
+        ])
+        rscc, _, _ = prepare_improvement(data)
+        clustering = data.rename(columns={"rscc": "clustering_score"})
+        clustering["occupancies"] = "[0.5 0.5]"
+        clustering["avg_silhouette_to_ref"] = clustering.clustering_score
+        clustering["min_predicted_occupancy"] = .5
+        clustering["min_map_occupancy"] = .5
+        scores, _, _ = prepare_improvement(clustering, "clustering_score")
+        self.assertEqual(set(rscc.loc[rscc.far, "protein"]), {"p0", "p1", "p2", "p3", "p4"})
+        self.assertEqual(set(scores.loc[scores.far, "protein"]), {"p0", "p1", "p2"})
 
     def test_clustering_snapshot_preserves_multi_entry_formula_and_records(self):
         with tempfile.TemporaryDirectory() as tmp:

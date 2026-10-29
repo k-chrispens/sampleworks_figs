@@ -1,7 +1,14 @@
 import marimo
 
 __generated_with = "0.23.2"
-app = marimo.App()
+app = marimo.App(width="full")
+
+
+@app.cell
+def _(mo):
+    from supplementary_plot import linked_plot, inspection_tables, reconstruction_bundle
+    get_inspection, set_inspection = mo.state({})
+    return get_inspection, set_inspection, linked_plot, inspection_tables, reconstruction_bundle
 
 
 @app.cell
@@ -13,7 +20,6 @@ def _():
 
 @app.cell
 def _():
-    import matplotlib.pyplot as plt
     import pandas as pd
     from loaders import (
         add_simplified_metadata_columns,
@@ -26,9 +32,7 @@ def _():
         merge_classification_by_containment,
     )
     from plot_classified import make_by_class_combined_grid
-    from plot_distributions import make_combined_baseline_distributions
     from plot_scatter import (
-        make_aggregated_scatter,
         make_clustering_scatter,
         make_min_rmsd_scatter,
         make_rscc_scatter,
@@ -64,10 +68,8 @@ def _():
         load_min_altloc_rmsd,
         load_rscc,
         load_rscc_max_rmsd,
-        make_aggregated_scatter,
         make_by_class_combined_grid,
         make_clustering_scatter,
-        make_combined_baseline_distributions,
         make_min_rmsd_scatter,
         make_rscc_scatter,
         make_scatter_comparison,
@@ -124,7 +126,11 @@ def _(OPTIMAL_GW, format_residue_range, pd):
 @app.cell
 def _(mo):
     mo.md(r"""
-    # Fit Quality Analysis
+    # Fit-quality supplements and summary analyses
+
+    Main-paper baseline and aggregate panels live in `01_baseline.py` and
+    `03_rscc_improvement.py` through `05_min_rmsd.py`. This notebook retains
+    the distinct per-model, cross-metric, classification, and summary analyses.
 
     How well do guided structure predictions fit experimental data? Two complementary
     metrics, each compared at **baseline** (no guidance) vs each model's **optimal
@@ -140,15 +146,12 @@ def _(mo):
     | Figure | Output path |
     |--------|-------------|
     | Model color legend | `model_legend.svg` |
-    | Baseline distributions (RSCC + clustering) | `04_09_baseline_distributions[_variant].svg` |
     | RSCC scatter, per model | `rscc_scatterplots/rscc_scatter_{model}.svg` |
     | Clustering score scatter, per model | `rscc_scatterplots/clustering_score_scatter_{model}.svg` |
     | RSCC vs clustering scatter, per model | `cross_metric_scatterplots/rscc_vs_lddt_{model}.svg` |
     | RSCC vs clustering scatter, per selection | `cross_metric_scatterplots/rscc_vs_lddt_per_selection_{model}.svg` |
-    | Aggregated RSCC scatter | `rscc_scatterplots/rscc_scatter_aggregated_all_models.svg` |
-    | Aggregated / per-model min-RMSD scatter | `rmsd_scatterplots/min_rmsd_scatter_*.svg` |
+    | Per-model min-RMSD scatter | `rmsd_scatterplots/min_rmsd_scatter_{model}.svg` |
     | RSCC by conformational class (models × 4 grid, by dropdown) | `rscc_scatterplots/rscc_by_class_combined[_variant].svg` |
-    | Aggregated clustering-score scatter | `rscc_scatterplots/clustering_score_scatter_aggregated_all_models.svg` |
 
     ## Summary tables (printed, not saved)
 
@@ -156,8 +159,8 @@ def _(mo):
     per-(protein, selection, model) level: threshold-clearing fractions (overall and
     per model), single-residue enrichment, RSCC↔clustering trade-offs in both
     directions with a clustering-collapse breakdown, and RSCC vs min-RMSD-to-altloc.
-    A **Merged Clustering Labels -- (+N) Expansion** table (just below the clustering
-    scatter) lists every selection collapsed into each merged `(+N)` label.
+    Hover and the linked inspection tables below identify highlighted selections
+    and overlapping observations without fixed text labels.
     """)
 
     model_group = mo.ui.dropdown(
@@ -165,32 +168,13 @@ def _(mo):
         value="Main models",
         label="Model group",
     )
-    smoothing = mo.ui.slider(
-        start=0.05, stop=1.0, step=0.05,
-        value=0.25,
-        label="KDE smoothing",
-    )
     auto_save = mo.ui.switch(label="Auto-save figures", value=False)
     exclude_nan_rscc = mo.ui.switch(label="Exclude NaN-RSCC proteins", value=False)
-    cumulative = mo.ui.switch(label="Cumulative (fig 04_09)", value=False)
-    cumulative_style = mo.ui.radio(
-        options={"Smoothed (KDE)": "kde", "ECDF (step)": "ecdf"},
-        value="Smoothed (KDE)",
-        label="Cumulative style",
-        inline=True,
-    )
     mo.hstack(
-        [model_group, smoothing, auto_save, exclude_nan_rscc, cumulative, cumulative_style],
+        [model_group, auto_save, exclude_nan_rscc],
         justify="start", gap=1,
     )
-    return (
-        auto_save,
-        cumulative,
-        cumulative_style,
-        exclude_nan_rscc,
-        model_group,
-        smoothing,
-    )
+    return auto_save, exclude_nan_rscc, model_group
 
 
 @app.cell
@@ -363,46 +347,6 @@ def _(auto_save, save_model_legend):
 
 
 @app.cell
-def _(
-    auto_save,
-    cumulative,
-    cumulative_style,
-    filter_by_model_group,
-    lddt_results_1,
-    make_combined_baseline_distributions,
-    mo,
-    model_group,
-    rscc_all,
-    save_fig,
-    smoothing,
-):
-    _rscc_data, _suffix = filter_by_model_group(
-        rscc_all, model_group.value, extra_query="guidance_strength == 'baseline'",
-    )
-    # Group-filter the LDDT panel too (was main-only) so both panels honor the
-    # dropdown; the suffix is shared with the RSCC frame above.
-    _lddt_data, _ = filter_by_model_group(
-        lddt_results_1, model_group.value,
-        extra_query="guidance_strength == 'baseline' and selection_name != 'all altloc'",
-    )
-    fig_04_09 = make_combined_baseline_distributions(
-        _rscc_data, _lddt_data,
-        smoothing=smoothing.value,
-        cumulative=cumulative.value,
-        cumulative_style=cumulative_style.value,
-    )
-    if auto_save.value:
-        save_fig(fig_04_09, f"04_09_baseline_distributions{_suffix}.png")
-    mo.vstack([
-        mo.md("""## Figures 04 & 09 -- Baseline Distributions (RSCC + LDDT)
-        All models at no-guidance baseline.
-        `figures/04_09_baseline_distributions[_variant].svg`"""),
-        fig_04_09,
-    ])
-    return
-
-
-@app.cell
 def _(MODEL_DISPLAY, mo):
     # Build dropdown from MODEL_DISPLAY (consistent labels across all scatter sections)
     _options = {
@@ -434,7 +378,9 @@ def _(
     OPTIMAL_GW,
     auto_save,
     make_rscc_scatter,
+    linked_plot,
     mo,
+    set_inspection,
     model_slug,
     rscc_scatter_df,
     save_all_scatter,
@@ -454,13 +400,14 @@ def _(
     _fig = make_rscc_scatter(_cur_df, _cur, OPTIMAL_GW[_cur])
     if auto_save.value:
         save_fig(_fig, f"rscc_scatterplots/rscc_scatter_{model_slug(_cur)}.svg")
+    rscc_panel = linked_plot(_fig, mo, set_inspection, "rscc")
     mo.vstack([
         mo.md("""## RSCC Scatter -- Baseline vs Optimal Guidance
         Per-model scatter comparing baseline RSCC with RSCC at optimal guidance weight.
         `figures/rscc_scatterplots/rscc_scatter_{model}.svg`"""),
-        _fig,
+        rscc_panel.view,
     ])
-    return
+    return (rscc_panel,)
 
 
 @app.cell
@@ -471,7 +418,9 @@ def _(
     auto_save,
     cs_scatter_df,
     make_clustering_scatter,
+    linked_plot,
     mo,
+    set_inspection,
     model_slug,
     rscc_residual_label_override,
     rscc_scatter_df,
@@ -507,6 +456,7 @@ def _(
 
     _cur = scatter_model.value
     _cur_df = _cs_labeled[_cs_labeled["model_name"] == _cur]
+    clustering_panel = None
     if _cur_df.empty:
         _content = mo.callout(
             f"No clustering-score data available for {MODEL_DISPLAY.get(_cur, _cur)}.",
@@ -516,84 +466,19 @@ def _(
         _fig = _make_cluster_fig(_cur_df, _cur)
         if auto_save.value:
             save_fig(_fig, f"rscc_scatterplots/clustering_score_scatter_{model_slug(_cur)}.svg")
-        _content = _fig
+        clustering_panel = linked_plot(_fig, mo, set_inspection, "clustering")
+        _content = clustering_panel.view
     mo.vstack([
         mo.md("""## Clustering Score Scatter -- Baseline vs Optimal Guidance
         Per-model scatter comparing baseline clustering score with the clustering score
-        at optimal guidance weight. Green / red / orange labels are pinned to the same
+        at optimal guidance weight. Green / red / orange circles are pinned to the same
         selections (in the same colors) as that model's RSCC residual panel (fig 4
         panel C); blue rings mark the shared curated highlights. Models without
         clustering data render a warning callout in place of the figure.
         `figures/rscc_scatterplots/clustering_score_scatter_{model}.svg`"""),
         _content,
     ])
-    return
-
-
-@app.cell
-def _(
-    MODEL_DISPLAY,
-    OPTIMAL_GW,
-    add_label,
-    cs_scatter_df,
-    make_clustering_scatter,
-    mo,
-    pd,
-    rscc_residual_label_override,
-    rscc_scatter_df,
-):
-    # Expand the (+N) merged clustering labels: which selections collapsed into each
-    # combined "A, B (+N)" marker, per model. Built from the SAME grouping the
-    # figures use -- make_clustering_scatter populates coincident_groups_out during
-    # the draw -- so this table can never drift from the panels. A throwaway figure
-    # is drawn and closed per model purely to harvest the groups.
-    import matplotlib.pyplot as _plt
-
-    _cs_labeled = add_label(cs_scatter_df)
-    _rows = []
-    for _m in [
-        _name
-        for _name in (
-            "boltz2X-RAY", "boltz2MD", "protenix", "rf3",
-            "protenix-mini", "protenix-tiny", "rf3-chiral-off",
-        )
-        if _name in set(_cs_labeled["model_name"])
-    ]:
-        _d = _cs_labeled[_cs_labeled["model_name"] == _m]
-        if _d.empty:
-            continue
-        _override = rscc_residual_label_override(
-            rscc_scatter_df[rscc_scatter_df["model_name"] == _m]
-        )
-        _groups: list = []
-        _fig = make_clustering_scatter(
-            _d, _m, OPTIMAL_GW[_m],
-            residual_label_override=_override,
-            coincident_groups_out=_groups,
-        )
-        _plt.close(_fig)
-        for _gx, _gy, _members in sorted(_groups, key=lambda _g: -len(_g[2])):
-            _rows.append({
-                "model": MODEL_DISPLAY.get(_m, _m),
-                "baseline_cs": round(float(_gx), 3),
-                "improvement": round(float(_gy), 3),
-                "n": len(_members),
-                "selections": ", ".join(_members),
-            })
-
-    merged_label_groups_df = pd.DataFrame(
-        _rows, columns=["model", "baseline_cs", "improvement", "n", "selections"]
-    )
-    mo.vstack([
-        mo.md("""## Merged Clustering Labels -- (+N) Expansion
-        Each row is a coincident group on a clustering panel whose member labels were
-        merged into one combined `"A, B (+N)"` marker (selections landing on the same
-        `coincident_tol` cell). Lists every selection in the group so the `(+N)` count
-        is recoverable. Built from the same `coincident_groups_out` grouping the figures
-        use, so it cannot drift from the panels. Not saved."""),
-        merged_label_groups_df,
-    ])
-    return (merged_label_groups_df,)
+    return (clustering_panel,)
 
 
 @app.cell
@@ -620,6 +505,8 @@ def _(lddt_results_1, optimal_gw_df, rscc_all):
 def _(
     auto_save,
     cross_metric_df,
+    linked_plot,
+    set_inspection,
     make_scatter_comparison,
     mo,
     model_slug,
@@ -632,7 +519,7 @@ def _(
         x_col="rscc", y_col="clustering_score",
         x_label="RSCC",
         y_label="Clustering Score",
-        draw_regression=True, show_correlation=True, label_all=True, equal_aspect=False,
+        draw_regression=True, show_correlation=True, equal_aspect=False,
     )
 
     if save_all_scatter.value:
@@ -648,14 +535,15 @@ def _(
     _fig = make_scatter_comparison(_cur_df, _cur, **_scatter_kwargs)
     if auto_save.value:
         save_fig(_fig, f"cross_metric_scatterplots/rscc_vs_lddt_{model_slug(_cur)}.svg")
+    protein_panel = linked_plot(_fig, mo, set_inspection, "cross-protein")
     mo.vstack([
         mo.md("""## RSCC vs LDDT Scatter -- Cross-Metric Comparison
         Per-model scatter comparing RSCC with LDDT clustering score at optimal guidance,
         clustering averaged across selections (one point per protein). Pearson r annotated.
         `figures/cross_metric_scatterplots/rscc_vs_lddt_{model}.svg`"""),
-        _fig,
+        protein_panel.view,
     ])
-    return
+    return (protein_panel,)
 
 
 @app.cell
@@ -685,6 +573,8 @@ def _(add_label, lddt_results_1, optimal_gw_df, rscc):
 def _(
     auto_save,
     cross_metric_per_sel_df,
+    linked_plot,
+    set_inspection,
     make_scatter_comparison,
     mo,
     model_slug,
@@ -714,108 +604,16 @@ def _(
     _fig = make_scatter_comparison(_cur_df, _cur, **_scatter_kwargs)
     if auto_save.value:
         save_fig(_fig, f"cross_metric_scatterplots/rscc_vs_lddt_per_selection_{model_slug(_cur)}.svg")
+    region_panel = linked_plot(_fig, mo, set_inspection, "cross-region")
     mo.vstack([
         mo.md("""## RSCC vs LDDT Scatter -- Per Selection (Cross-Metric)
         Same RSCC vs clustering comparison as above but with **one point per (protein,
         selection)** altloc region instead of one per protein -- clustering is not averaged
         across selections. Pearson r annotated; `6B8X 181-183` / `5MHX 162-164` circled blue.
         `figures/cross_metric_scatterplots/rscc_vs_lddt_per_selection_{model}.svg`"""),
-        _fig,
+        region_panel.view,
     ])
-    return
-
-
-@app.cell
-def _(auto_save, make_aggregated_scatter, mo, rscc_scatter_df, save_fig):
-    _rscc_agg_df = (
-        rscc_scatter_df.query("model_name not in @MODELS_ALT")
-        .groupby(["protein", "selection", "label"], as_index=False)
-        .agg(
-            x_med=("rscc_baseline", "median"),
-            y_med=("rscc_optimal", "median"),
-            n=("model_name", "count"),
-        )
-    )
-    _rscc_agg_df = _rscc_agg_df[_rscc_agg_df["n"] >= 3]
-
-    _fig = make_aggregated_scatter(
-        _rscc_agg_df,
-        x_col="x_med", y_col="y_med",
-        x_label="Baseline RSCC (median across models)",
-        y_label="Median Improvement (Guided - Baseline)",
-        title="RSCC Improvement Over Baseline",
-        label_col="label",
-        residual=True,
-        show_marginal_kde=True,
-        show_errors=False,
-        point_color="#377EB8",
-        label_top_n=3, label_far_from_ceiling_n=5,
-        highlight_proteins=["6B8X 181-183", "5MHX 162-164", "5SOP 131-133"],
-        xlim=(0.0, 1.0),
-    )
-    if auto_save.value:
-        save_fig(_fig, "rscc_scatterplots/rscc_scatter_aggregated_all_models.png")
-    mo.vstack([
-        mo.md("""## Aggregated RSCC Scatter -- Collapsed Across Main Models
-        Each point is one (protein, selection); baseline and guided RSCC collapsed across main models using the median (per-model spread shown in the per-model figures above).
-        `figures/rscc_scatterplots/rscc_scatter_aggregated_all_models.svg`"""),
-        _fig,
-    ])
-    return
-
-
-@app.cell
-def _(
-    MIN_RMSD_EXTRA_HIGHLIGHTS,
-    auto_save,
-    make_min_rmsd_scatter,
-    min_rmsd_per_model_df,
-    mo,
-    save_fig,
-):
-    _min_rmsd_agg_df = (
-        min_rmsd_per_model_df.query("model_name not in @MODELS_ALT")
-        .groupby(["protein", "selection", "label"], as_index=False)
-        .agg(
-            min_rmsd_to_A=("min_rmsd_to_A", "median"),
-            min_rmsd_to_B=("min_rmsd_to_B", "median"),
-            n=("model_name", "count"),
-        )
-    )
-    _min_rmsd_agg_df = _min_rmsd_agg_df[_min_rmsd_agg_df["n"] >= 3]
-
-    # The 6NI5/6NI6 altloc segments stay on the per-model RMSD figures but are
-    # dropped from this aggregated scatter (per user request). Filter them out
-    # of every panel/color group of the shared highlight dict so the per-model
-    # cell, which still passes MIN_RMSD_EXTRA_HIGHLIGHTS unchanged, is untouched.
-    _agg_highlights = {
-        _panel: {
-            _color: [
-                _lbl for _lbl in _labels
-                if not _lbl.startswith(("6NI5", "6NI6"))
-            ]
-            for _color, _labels in _groups.items()
-        }
-        for _panel, _groups in MIN_RMSD_EXTRA_HIGHLIGHTS.items()
-    }
-
-    _fig_min_rmsd_agg = make_min_rmsd_scatter(
-        _min_rmsd_agg_df,
-        title="Minimum RMSD to Each Altloc",
-        extra_highlight_groups=_agg_highlights,
-    )
-    if auto_save.value:
-        save_fig(
-            _fig_min_rmsd_agg,
-            "rmsd_scatterplots/min_rmsd_scatter_aggregated_all_models.svg",
-        )
-    mo.vstack([
-        mo.md("""## Aggregated Min-RMSD Scatter -- Min RMSD to Altloc A vs B
-        Each point is one (protein, selection); X / Y are the median across main models of the minimum RMSD across the 8-member ensemble at each model's optimal guidance weight. Pinned blue rings on `6B8X 181-183` and `5MHX 162-164` appear on both panels (matching the aggregated RSCC scatter). Extra RSCC-matched highlight rings split per panel: orange (`#F57C00`) `2QCV 2-4`, `4OLE 424-426` and `6RP1 5` and blue (`#1565C0`) `5SOP 131-133` appear on **both** the auto-fit and zoom panels; the red (`#D32F2F`) curated `7Z0E` subset (`11-13`, `18-20`, `54-56`, `82-84`, `122-124`, `181-183`, `206-208`, `214-216`) appears on the **zoom panel only**, keeping the global auto-fit panel readable. The 6NI5 / 6NI6 altloc segments circled blue on the per-model RMSD figures are intentionally omitted from this aggregated scatter.
-        `figures/rmsd_scatterplots/min_rmsd_scatter_aggregated_all_models.svg`"""),
-        _fig_min_rmsd_agg,
-    ])
-    return
+    return (region_panel,)
 
 
 @app.cell
@@ -823,6 +621,8 @@ def _(
     MIN_RMSD_EXTRA_HIGHLIGHTS,
     MODEL_DISPLAY,
     auto_save,
+    linked_plot,
+    set_inspection,
     make_min_rmsd_scatter,
     min_rmsd_per_model_df,
     mo,
@@ -848,6 +648,7 @@ def _(
 
     _cur = scatter_model.value
     _cur_df = min_rmsd_per_model_df[min_rmsd_per_model_df["model_name"] == _cur]
+    rmsd_panel = None
     if _cur_df.empty:
         _content = mo.callout(
             f"No min-RMSD data available for {MODEL_DISPLAY.get(_cur, _cur)}.",
@@ -860,20 +661,23 @@ def _(
                 _fig_min_rmsd_per,
                 f"rmsd_scatterplots/min_rmsd_scatter_{model_slug(_cur)}.svg",
             )
-        _content = _fig_min_rmsd_per
+        rmsd_panel = linked_plot(_fig_min_rmsd_per, mo, set_inspection, "rmsd")
+        _content = rmsd_panel.view
     mo.vstack([
         mo.md("""## Per-Model Min-RMSD Scatter -- Min RMSD to Altloc A vs B
         Per-model scatter at each model's optimal guidance weight (no baseline overlay). Highlight split: pinned blues plus the orange + blue extra groups (blue here includes the 6NI5 / 6NI6 altloc segments matching the RSCC per-model figures -- unlike the aggregated figure, which omits them) appear on both panels, while the red curated `7Z0E` subset appears on the zoom panel only. Per-panel visibility is filtered to in-range points, so segments outside a panel's limits (e.g. 6NI5/6NI6 `213-215` on the zoom panel) simply don't render there. Models without a min-RMSD CSV (e.g. `rf3-chiral-off`) render a warning callout in place of the figure.
         `figures/rmsd_scatterplots/min_rmsd_scatter_{model}.svg`"""),
         _content,
     ])
-    return
+    return (rmsd_panel,)
 
 
 @app.cell
 def _(
     auto_save,
     classification_df,
+    linked_plot,
+    set_inspection,
     filter_by_model_group,
     load_rscc,
     make_by_class_combined_grid,
@@ -933,6 +737,7 @@ def _(
     _model_order = [m for m in _canonical if m in _present]
 
     _fig_combined = make_by_class_combined_grid(_merged, model_order=_model_order)
+    class_panel = linked_plot(_fig_combined, mo, set_inspection, "classes")
     if auto_save.value:
         save_fig(_fig_combined, f"rscc_scatterplots/rscc_by_class_combined{_suffix}.svg")
 
@@ -946,66 +751,9 @@ def _(
         `results/classify_altloc_regions.csv`. Honors the model-group dropdown;
         non-main groups save with the `_protenix_alts` / `_rf3_alts` suffix.
         `figures/rscc_scatterplots/rscc_by_class_combined[_variant].svg`"""),
-        _fig_combined,
+        class_panel.view,
     ])
-    return
-
-
-@app.cell
-def _(
-    add_label,
-    auto_save,
-    lddt_results_1,
-    make_aggregated_scatter,
-    mo,
-    optimal_gw_df,
-    save_fig,
-):
-    # Per-(protein, selection, model) baseline + optimal clustering score (main models),
-    # collapsed to one (protein, selection) median.
-    _region = lddt_results_1[lddt_results_1["selection_name"] != "all altloc"]
-    _baseline = (
-        _region.query("guidance_weight == 0.0 and model_name not in @MODELS_ALT")
-        [["protein", "selection", "model_name", "clustering_score"]]
-        .rename(columns={"clustering_score": "lddt_baseline"})
-    )
-    _optimal = (
-        _region.merge(optimal_gw_df, on="model_name")
-        .query("guidance_weight == optimal_gw and model_name not in @MODELS_ALT")
-        [["protein", "selection", "model_name", "clustering_score"]]
-        .rename(columns={"clustering_score": "lddt_optimal"})
-    )
-    _agg = (
-        _baseline.merge(_optimal, on=["protein", "selection", "model_name"])
-        .groupby(["protein", "selection"], as_index=False)
-        .agg(x_med=("lddt_baseline", "median"), y_med=("lddt_optimal", "median"),
-             n=("model_name", "count"))
-    )
-    _agg = add_label(_agg[_agg["n"] >= 3])
-
-    _fig_lddt = make_aggregated_scatter(
-        _agg,
-        x_col="x_med", y_col="y_med",
-        x_label="Baseline Clustering Score (median across models)",
-        y_label="Median Improvement (Guided - Baseline)",
-        title="Clustering Score Improvement Over Baseline",
-        label_col="label",
-        residual=True,
-        show_marginal_kde=True, show_errors=False, point_color="#377EB8",
-        label_top_n=3, label_bottom_n=5, label_far_from_ceiling_n=3,
-        highlight_proteins=["6B8X 181-183", "5MHX 162-164", "5SOP 131-133"],
-        xlim=(0.0, 1.0),
-    )
-    if auto_save.value:
-        save_fig(_fig_lddt, "rscc_scatterplots/clustering_score_scatter_aggregated_all_models.png")
-
-    mo.vstack([
-        mo.md("""## Aggregated Clustering Score Scatter
-        Each point is one (protein, selection), median across main models of baseline vs
-        guided clustering score (per-model spread is in the per-model figures)."""),
-        _fig_lddt,
-    ])
-    return
+    return (class_panel,)
 
 
 @app.cell
@@ -1321,6 +1069,40 @@ def _(mo, per_model_counts, rscc_minrmsd_df):
         _display,
     ])
     return
+
+
+@app.cell
+def _(rscc_panel, clustering_panel, protein_panel, region_panel, rmsd_panel, class_panel):
+    panels = {k: p for k, p in {
+        "rscc": rscc_panel, "clustering": clustering_panel, "cross-protein": protein_panel,
+        "cross-region": region_panel, "rmsd": rmsd_panel, "classes": class_panel,
+    }.items() if p is not None}
+    return (panels,)
+
+
+@app.cell
+def _(panels, get_inspection, inspection_tables, mo):
+    inspection = inspection_tables(panels, get_inspection(), mo)
+    inspection
+    return (inspection,)
+
+
+@app.cell
+def _(panels, mo):
+    export_panel = mo.ui.dropdown(options=list(panels), value=next(iter(panels)), label="Fixed reconstruction")
+    build_export = mo.ui.run_button(label="Build SVG + data bundle")
+    mo.hstack([export_panel, build_export])
+    return export_panel, build_export
+
+
+@app.cell
+def _(build_export, export_panel, panels, reconstruction_bundle, mo):
+    reconstruction_download = mo.download(
+        data=reconstruction_bundle(panels[export_panel.value].figure),
+        filename=f"06-{export_panel.value}-reconstruction.zip", label="Download reconstruction",
+    ) if build_export.value else None
+    reconstruction_download
+    return (reconstruction_download,)
 
 
 if __name__ == "__main__":

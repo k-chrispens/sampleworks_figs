@@ -40,6 +40,12 @@ These are review gates, not permission to silently change published calculations
   documented as backbone-lDDT. Confirm definition/thresholds before pinning it.
 - **Sampling budgets:** existing 5MHX/6B8X CSVs provide budget axes. Document their
   generation history and whether Supplement S6 also requires clustering data.
+  Recycles/steps fallback currently uses grid keys after the loader removes NaNs:
+  an all-NaN exported default-key cell can be replaced by the default run.
+- **Training-bias Figure 32:** the “empty cluster” strip filters A = B = 0, not
+  zero evaluated members. Positive-evaluated/unassigned rows remain included,
+  despite a historical builder warning claiming they are dropped. Decide the
+  intended paper population before changing the filter or label.
 - **Historical reference:** source checksums identify the current reconstruction;
   equivalence to the published archive/code revision is not yet verified.
 

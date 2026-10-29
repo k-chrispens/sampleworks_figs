@@ -11,7 +11,6 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import seaborn as sns
-from matplotlib.patches import Patch
 
 # ── Publication styling ───────────────────────────────────────────────────────
 sns.set_context("paper")
@@ -205,7 +204,7 @@ def save_fig(
     fmt: str = "svg",
     annotate_source: bool = True,
 ) -> Path:
-    """Save a matplotlib figure or FacetGrid to the figures directory.
+    """Save a Matplotlib or Plotly figure to the figures directory.
 
     Parameters
     ----------
@@ -227,29 +226,25 @@ def save_fig(
     figure = plot_obj.figure if hasattr(plot_obj, "figure") else plot_obj
     output_path = (FIGURE_DIR / filename).with_suffix(f".{fmt}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    figure.savefig(output_path, bbox_inches="tight")
+    if hasattr(figure, "write_image"):
+        figure.write_image(output_path, format=fmt)
+    else:
+        figure.savefig(output_path, bbox_inches="tight")
     return output_path
 
 
 def save_model_legend(filename: str = "model_legend", fmt: str = "svg") -> Path:
     """Create and save a standalone model-colour legend as its own figure."""
-    handles = [
-        Patch(facecolor=color, alpha=0.8, label=MODEL_DISPLAY.get(key, key))
+    import plotly.graph_objects as go
+
+    figure = go.Figure([
+        go.Scatter(x=[None], y=[None], mode="markers", name=MODEL_DISPLAY.get(key, key),
+                   marker=dict(color=color, size=10))
         for key, color in MODEL_PALETTE.items()
-    ]
-    fig, ax = plt.subplots(figsize=(2.5, 0.4 * len(handles)))
-    ax.axis("off")
-    ax.legend(
-        handles=handles,
-        loc="center",
-        frameon=False,
-        title="Model",
-    )
-    output_path = (FIGURE_DIR / filename).with_suffix(f".{fmt}")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, bbox_inches="tight")
-    plt.close(fig)
-    return output_path
+    ])
+    figure.update_layout(template="plotly_white", height=350, width=350,
+                         xaxis=dict(visible=False), yaxis=dict(visible=False))
+    return save_fig(figure, filename, fmt=fmt)
 
 
 def save_per_model_figures(
@@ -279,5 +274,5 @@ def save_per_model_figures(
             continue
         fig = make_fn(_model_df, _model, **make_kwargs)
         save_fig(fig, path_template.format(slug=model_slug(_model)))
-        if close:
+        if close and not hasattr(fig, "write_image"):
             plt.close(fig)

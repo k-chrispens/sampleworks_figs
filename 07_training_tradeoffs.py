@@ -1,7 +1,16 @@
 import marimo
 
 __generated_with = "0.23.2"
-app = marimo.App()
+app = marimo.App(width="full")
+
+
+@app.cell
+def _(mo):
+    from supplementary_plot import linked_plot, inspection_tables, reconstruction_bundle
+    get_inspection, _set_inspection = mo.state({})
+    def show_plot(figure, key):
+        return linked_plot(figure, mo, _set_inspection, key)
+    return get_inspection, show_plot, inspection_tables, reconstruction_bundle
 
 
 @app.cell
@@ -13,7 +22,6 @@ def _():
 
 @app.cell
 def _():
-    import matplotlib.pyplot as plt
     import numpy as np
     import pandas as pd
     from loaders import (
@@ -26,10 +34,7 @@ def _():
         load_training_cluster_counts,
         tag_path_dataframe,
     )
-    from plot_tradeoff import (
-        make_aggregated_spiral_figure,
-        make_spiral_figure,
-    )
+    from plot_tradeoff import make_spiral_figure
     from plot_training_bias import (
         make_training_bias_calibration_explainer,
         make_training_bias_calibration_overlay,
@@ -63,7 +68,6 @@ def _():
         load_lddt,
         load_rscc_max_rmsd,
         load_training_cluster_counts,
-        make_aggregated_spiral_figure,
         make_delta_frame,
         make_spiral_figure,
         make_training_bias_calibration_explainer,
@@ -76,7 +80,6 @@ def _():
         model_slug,
         np,
         pd,
-        plt,
         save_fig,
         tag_path_dataframe,
     )
@@ -85,18 +88,18 @@ def _():
 @app.cell
 def _(MODEL_DISPLAY, mo):
     mo.md(r"""
-    # Guidance-Weight Spiral Trajectories
+    # Individual-protein tradeoffs and training bias
 
     Each line traces a single protein through **(delta RSCC, geometry penalty)**
     space as guidance weight increases from baseline to the strongest setting.
+    Aggregate median/IQR trajectories, including model subsets and isolated models,
+    now live in the interactive `02_guidance.py` notebook.
 
     ## Figures produced by this notebook
 
     | ID | Description | Output |
     |----|-------------|--------|
     | 12-19 | Spiral trajectory per model | `{nn}_spiral_{model}.svg` |
-    | 20 | Aggregated spiral (selected model group) | `20_aggregated_spiral_all[_variant].svg` |
-    | 21-28 | Aggregated spiral per model | `{nn}_aggregated_spiral_{model}.svg` |
     | 29 | Training-cluster vs predicted state-B fraction -- 2×N small multiples | `29_training_bias_small_multiples[_variant].svg` |
     | 30 | Calibration overlay on low-training-cluster subset (n_cluster_evaluated ≤ 5) -- 1×N | `30_training_bias_calibration_overlay_low_cluster[_variant].svg` |
     | 31 | Calibration overlay on post-cutoff subset -- 1×N | `31_training_bias_calibration_overlay_post_cutoff[_variant].svg` |
@@ -114,9 +117,7 @@ def _(MODEL_DISPLAY, mo):
                   "protenix-mini", "protenix-tiny", "rf3-chiral-off")
     }
     selected_model = mo.ui.dropdown(options=_options, value="Boltz2-XRD", label="Model")
-    # Model-group selector, identical to notebook 02's. Drives the per-model-
-    # colored multi-model figures (the Figure-20 overlay spiral and the
-    # training-bias suite); the per-model spirals stay on `selected_model`.
+    # Training-bias grids follow this group; individual spirals use selected_model.
     model_group = mo.ui.dropdown(
         options={"Main models": "main", "Protenix variants": "protenix", "RF3 variants": "rf3"},
         value="Main models",
@@ -254,7 +255,7 @@ def _(
     mo,
     model_slug,
     np,
-    plt,
+    show_plot,
     save_all,
     save_fig,
     selected_model,
@@ -286,7 +287,6 @@ def _(
                 continue
             _fig = make_spiral_figure(_model_df, _model, xlim=_shared_xlim, ylim=_shared_ylim)
             save_fig(_fig, f"{_spiral_nums[_model]:02d}_spiral_{model_slug(_model)}.png")
-            plt.close(_fig)
 
     _cur_model = selected_model.value
     _spiral_fig = None
@@ -296,142 +296,32 @@ def _(
         if auto_save.value and not save_all.value:
             save_fig(_spiral_fig, f"{_spiral_nums[_cur_model]:02d}_spiral_{model_slug(_cur_model)}.png")
 
+    spiral_panel = show_plot(_spiral_fig, "spirals") if _spiral_fig is not None else None
     mo.vstack([
         mo.md("""## Figures 12-19 -- Spiral Trajectory per Model
         Each protein traces through (delta RSCC, geometry penalty) space.
         `figures/12_spiral_boltz2_xrd.svg` through `figures/19_spiral_rf3_chiral_off.svg`"""),
-        _spiral_fig,
+        spiral_panel.view if spiral_panel is not None else mo.md("No trajectories for this model."),
     ])
-    return
+    return (spiral_panel,)
 
 
 @app.cell
-def _(
-    auto_save,
-    filter_by_model_group,
-    make_aggregated_spiral_figure,
-    mo,
-    model_group,
-    pd,
-    save_fig,
-    tradeoff_df,
-):
-    # Figure 20 honors the model-group dropdown. Main → the four main models;
-    # Protenix / RF3 variants → that family's members and colors. Non-main saves
-    # get the _protenix_alts / _rf3_alts suffix.
-    _grp_df, _suffix = filter_by_model_group(tradeoff_df, model_group.value)
-    _canonical = [
-        "boltz2X-RAY", "boltz2MD", "protenix", "rf3",
-        "protenix-mini", "protenix-tiny", "rf3-chiral-off",
-    ]
-    _present = set(_grp_df["model_name"].unique())
-    _model_order = [m for m in _canonical if m in _present]
-
-    # Geometry-coverage guard (report, don't fix): the spiral drops any
-    # (model, gw) cell with < 3 proteins, so a variant whose geometry sweep is
-    # sparser than its family's main model would draw a degenerate trajectory.
-    # Surface that to the user rather than silently shipping it; the underlying
-    # data gap is resolved upstream, not in the notebook.
-    if model_group.value != "main":
-        _min_n = 3
-        _surv = (
-            _grp_df.groupby(["model_name", "guidance_weight"]).size()
-            .reset_index(name="n")
-        )
-        _surv = _surv[_surv["n"] >= _min_n]
-        _gws = {m: sorted(g["guidance_weight"].unique()) for m, g in _surv.groupby("model_name")}
-        print(f"Figure 20 geometry coverage [{model_group.value}] — gw points with n>={_min_n}:")
-        for _m in _model_order:
-            print(f"  {_m}: {_gws.get(_m, [])}")
-        _family_main = "protenix" if model_group.value == "protenix" else "rf3"
-        _main_gws = set(_gws.get(_family_main, []))
-        for _m in _model_order:
-            if _m == _family_main:
-                continue
-            _missing = _main_gws - set(_gws.get(_m, []))
-            if _missing:
-                print(
-                    f"⚠️  geometry coverage: variant {_m} is missing gw(s) "
-                    f"{sorted(_missing)} that {_family_main} has (n>={_min_n} after "
-                    f"aggregation). Figure 20's {_m} arm is sparser than the main "
-                    f"model's — a data gap to resolve upstream, not in the notebook."
-                )
-
-    _fig = make_aggregated_spiral_figure(
-        tradeoff_df,
-        model_order=_model_order,
-        ylim=[-1., 1000.],
-        xlim=[-0.05, 0.25],
-    )
-    if auto_save.value:
-        save_fig(_fig, f"20_aggregated_spiral_all{_suffix}.svg")
-    mo.vstack([
-        mo.md("""## Figure 20 -- Aggregated Spiral (selected model group)
-        Median delta RSCC and geometry penalty per guidance weight, with IQR error bars.
-        Honors the model-group dropdown (Main / Protenix variants / RF3 variants);
-        non-main groups save with the `_protenix_alts` / `_rf3_alts` suffix.
-        `figures/20_aggregated_spiral_all[_variant].svg`"""),
-        _fig,
-    ])
-    return
-
-
-@app.cell
-def _(
-    auto_save,
-    make_aggregated_spiral_figure,
-    mo,
-    model_slug,
-    plt,
-    save_all,
-    save_fig,
-    selected_model,
-    tradeoff_df,
-):
-    _agg_spiral_nums = {
-        "boltz2X-RAY": 21, "boltz2MD": 22, "protenix": 23, "rf3": 24,
-        "protenix-mini": 25, "protenix-tiny": 26, "rf3-chiral-off": 28,
-    }
-    _all_models_agg = [
-        m for m in list(_agg_spiral_nums.keys())
-        if m in tradeoff_df["model_name"].unique()
-    ]
-
-    if save_all.value and auto_save.value:
-        for _model in _all_models_agg:
-            _fig = make_aggregated_spiral_figure(tradeoff_df, model_key=_model)
-            save_fig(_fig, f"{_agg_spiral_nums[_model]:02d}_aggregated_spiral_{model_slug(_model)}.svg")
-            plt.close(_fig)
-
-    _cur_model = selected_model.value
-    _agg_fig = None
-    if _cur_model in tradeoff_df["model_name"].unique():
-        _agg_fig = make_aggregated_spiral_figure(tradeoff_df, model_key=_cur_model)
-        if auto_save.value and not save_all.value:
-            save_fig(_agg_fig, f"{_agg_spiral_nums[_cur_model]:02d}_aggregated_spiral_{model_slug(_cur_model)}.svg")
-
-    mo.vstack([
-        mo.md("""## Figures 21-28 -- Aggregated Spiral per Model
-        Per-model aggregated trajectories with median + IQR.
-        `figures/21_aggregated_spiral_boltz2_xrd.svg` through `figures/28_aggregated_spiral_rf3_chiral_off.svg`"""),
-        _agg_fig,
-    ])
-    return
-
-
-@app.cell
-def _(
+def load_training_inputs(
     filter_by_model_group,
     load_deposition_cutoffs,
     load_lddt,
     load_training_cluster_counts,
     model_group,
+    nan_rscc_proteins,
     pd,
 ):
     cluster_df = load_training_cluster_counts()
     cutoffs_df = load_deposition_cutoffs()
+    cluster_df = cluster_df.loc[~cluster_df.protein.isin(nan_rscc_proteins)]
+    cutoffs_df = cutoffs_df.loc[~cutoffs_df.protein.isin(nan_rscc_proteins)]
     # LDDT concatenated from the five per-model-group CSVs in results/ (same
-    # inline concat + variant overrides as notebook 02's LDDT cell).
+    # inline concat + variant overrides as the fit-supplement LDDT cell).
     lddt_all = pd.concat(
         [
             load_lddt("results/lddt_results_boltz_protenix.csv"),
@@ -442,6 +332,7 @@ def _(
         ],
         ignore_index=True,
     )
+    lddt_all = lddt_all.loc[~lddt_all.protein.isin(nan_rscc_proteins)]
     # The training-bias suite honors the model-group dropdown. Resolve the
     # group's members (canonical order) and save suffix once here; every
     # training-bias figure cell consumes bias_model_order / bias_suffix.
@@ -489,12 +380,14 @@ def _(
     make_training_bias_scatter,
     mo,
     save_fig,
+    show_plot,
 ):
     _fig = make_training_bias_scatter(
         bias_baseline_df, bias_optimal_df, model_order=bias_model_order,
     )
     if auto_save.value:
         save_fig(_fig, f"29_training_bias_small_multiples{bias_suffix}.svg")
+    scatter_panel = show_plot(_fig, "training-scatter")
     mo.vstack([
         mo.md("""## Figure 29 -- Training-Cluster vs Predicted State-B Fraction
         2-row small multiples: columns = the selected model group's members,
@@ -504,9 +397,9 @@ def _(
         Honors the model-group dropdown; non-main groups save with the
         `_protenix_alts` / `_rf3_alts` suffix.
         `figures/29_training_bias_small_multiples[_variant].svg`"""),
-        _fig,
+        scatter_panel.view,
     ])
-    return
+    return (scatter_panel,)
 
 
 @app.cell
@@ -519,6 +412,7 @@ def _(
     make_training_bias_calibration_overlay,
     mo,
     save_fig,
+    show_plot,
 ):
     _fig = make_training_bias_calibration_overlay(
         bias_baseline_df, bias_optimal_df,
@@ -527,6 +421,7 @@ def _(
     )
     if auto_save.value:
         save_fig(_fig, f"34_training_bias_calibration_overlay{bias_suffix}.svg")
+    calibration_panel = show_plot(_fig, "calibration")
     mo.vstack([
         mo.md("""## Figure 34 -- Redesign A: Calibration Overlay (1×N)
         Single row of panels, one per model in the selected group. Baseline and Optimal guidance
@@ -536,9 +431,9 @@ def _(
         Pearson r annotated per panel. Honors the model-group dropdown; non-main
         groups save with the `_protenix_alts` / `_rf3_alts` suffix.
         `figures/34_training_bias_calibration_overlay[_variant].svg`"""),
-        _fig,
+        calibration_panel.view,
     ])
-    return
+    return (calibration_panel,)
 
 
 @app.cell
@@ -549,10 +444,12 @@ def _(
     make_training_bias_calibration_overlay_legend,
     mo,
     save_fig,
+    show_plot,
 ):
     _fig = make_training_bias_calibration_overlay_legend(model_order=bias_model_order)
     if auto_save.value:
         save_fig(_fig, f"34_training_bias_calibration_overlay_legend{bias_suffix}.svg")
+    legend_panel = show_plot(_fig, "legend")
     mo.vstack([
         mo.md("""## Figure 34L -- Calibration Overlay Legend (standalone)
         Standalone legend for Figure 34, separated so it can be arranged
@@ -560,9 +457,9 @@ def _(
         group's optimal-guidance markers; non-main groups save with the
         `_protenix_alts` / `_rf3_alts` suffix.
         `figures/34_training_bias_calibration_overlay_legend[_variant].svg`"""),
-        _fig,
+        legend_panel.view,
     ])
-    return
+    return (legend_panel,)
 
 
 @app.cell
@@ -575,12 +472,14 @@ def _(
     make_training_bias_small_multiples_v2,
     mo,
     save_fig,
+    show_plot,
 ):
     _fig = make_training_bias_small_multiples_v2(
         bias_baseline_df, bias_optimal_df, model_order=bias_model_order,
     )
     if auto_save.value:
         save_fig(_fig, f"35_training_bias_small_multiples_v2{bias_suffix}.svg")
+    multiples_panel = show_plot(_fig, "calibration-rows")
     mo.vstack([
         mo.md("""## Figure 35 -- Redesign B: Calibration Small Multiples v2 (2×N)
         2-row grid mirroring Figure 29's geometry (rows = condition, columns = model).
@@ -591,9 +490,9 @@ def _(
         Honors the model-group dropdown; non-main groups save with the
         `_protenix_alts` / `_rf3_alts` suffix.
         `figures/35_training_bias_small_multiples_v2[_variant].svg`"""),
-        _fig,
+        multiples_panel.view,
     ])
-    return
+    return (multiples_panel,)
 
 
 @app.cell
@@ -602,10 +501,12 @@ def _(
     make_training_bias_calibration_explainer,
     mo,
     save_fig,
+    show_plot,
 ):
     _fig = make_training_bias_calibration_explainer()
     if auto_save.value:
         save_fig(_fig, "36_training_bias_calibration_explainer.svg")
+    explainer_panel = show_plot(_fig, "explainer")
     mo.vstack([
         mo.md("""## Figure 36 -- Calibration Explainer (Empty Panel)
         Intentionally minimal companion to Figure 35. Same axes as the v2 small
@@ -614,9 +515,9 @@ def _(
         passing through their intersection at `(0.5, 0.5)`. No data, no annotations
         -- intended for downstream labeling.
         `figures/36_training_bias_calibration_explainer.svg`"""),
-        _fig,
+        explainer_panel.view,
     ])
-    return
+    return (explainer_panel,)
 
 
 @app.cell
@@ -629,6 +530,7 @@ def _(
     make_training_bias_calibration_overlay,
     mo,
     save_fig,
+    show_plot,
 ):
     # F30/F31 intentionally keep the default stacked annotation layout — the
     # split-corner layout is only for the main F34 cell.
@@ -646,6 +548,8 @@ def _(
         save_fig(_fig_low, f"30_training_bias_calibration_overlay_low_cluster{bias_suffix}.svg")
         save_fig(_fig_post, f"31_training_bias_calibration_overlay_post_cutoff{bias_suffix}.svg")
 
+    low_panel = show_plot(_fig_low, "low-cluster")
+    post_panel = show_plot(_fig_post, "post-cutoff")
     mo.vstack([
         mo.md("""## Figures 30, 31 -- Calibration Overlay on OOD Subsets
         Figure-34 layout (1x4, baseline + optimal overlaid with binned mean curves,
@@ -659,10 +563,10 @@ def _(
         `_protenix_alts` / `_rf3_alts` suffix.
         `figures/30_training_bias_calibration_overlay_low_cluster[_variant].svg`
         `figures/31_training_bias_calibration_overlay_post_cutoff[_variant].svg`"""),
-        _fig_low,
-        _fig_post,
+        low_panel.view,
+        post_panel.view,
     ])
-    return
+    return low_panel, post_panel
 
 
 @app.cell
@@ -675,12 +579,14 @@ def _(
     make_training_bias_no_cluster_strip,
     mo,
     save_fig,
+    show_plot,
 ):
     _fig = make_training_bias_no_cluster_strip(
         bias_baseline_df, bias_optimal_df, model_order=bias_model_order,
     )
     if auto_save.value:
         save_fig(_fig, f"32_training_bias_no_cluster_strip{bias_suffix}.svg")
+    empty_panel = show_plot(_fig, "unassigned")
     mo.vstack([
         mo.md("""## Figure 32 -- Empty-Training-Cluster Strip
         1×N vertical strip (one panel per model in the selected group) for selections where the
@@ -694,9 +600,9 @@ def _(
         Honors the model-group dropdown; non-main groups save with the
         `_protenix_alts` / `_rf3_alts` suffix.
         `figures/32_training_bias_no_cluster_strip[_variant].svg`"""),
-        _fig,
+        empty_panel.view,
     ])
-    return
+    return (empty_panel,)
 
 
 @app.cell
@@ -709,12 +615,14 @@ def _(
     make_training_bias_one_sided_strip,
     mo,
     save_fig,
+    show_plot,
 ):
     _fig = make_training_bias_one_sided_strip(
         bias_baseline_df, bias_optimal_df, model_order=bias_model_order,
     )
     if auto_save.value:
         save_fig(_fig, f"33_training_bias_one_sided_strip{bias_suffix}.svg")
+    sided_panel = show_plot(_fig, "one-sided")
     mo.vstack([
         mo.md("""## Figure 33 -- One-sided Training-Cluster Strip
         1×N paired-swarm strip (one panel per model in the selected group) for selections where
@@ -729,9 +637,46 @@ def _(
         `y = 0.5` reference line; per-strip `n` annotated. Honors the model-group
         dropdown; non-main groups save with the `_protenix_alts` / `_rf3_alts` suffix.
         `figures/33_training_bias_one_sided_strip[_variant].svg`"""),
-        _fig,
+        sided_panel.view,
     ])
-    return
+    return (sided_panel,)
+
+
+@app.cell
+def _(spiral_panel, scatter_panel, calibration_panel, multiples_panel, low_panel, post_panel,
+      empty_panel, sided_panel, legend_panel, explainer_panel):
+    panels = {k: p for k, p in {
+        "spirals": spiral_panel, "training-scatter": scatter_panel, "calibration": calibration_panel,
+        "calibration-rows": multiples_panel, "low-cluster": low_panel, "post-cutoff": post_panel,
+        "unassigned": empty_panel, "one-sided": sided_panel, "legend": legend_panel,
+        "explainer": explainer_panel,
+    }.items() if p is not None}
+    return (panels,)
+
+
+@app.cell
+def _(panels, get_inspection, inspection_tables, mo):
+    inspection = inspection_tables(panels, get_inspection(), mo)
+    inspection
+    return (inspection,)
+
+
+@app.cell
+def _(panels, mo):
+    export_panel = mo.ui.dropdown(options=list(panels), value=next(iter(panels)), label="Fixed reconstruction")
+    build_export = mo.ui.run_button(label="Build SVG + data bundle")
+    mo.hstack([export_panel, build_export])
+    return export_panel, build_export
+
+
+@app.cell
+def _(build_export, export_panel, panels, reconstruction_bundle, mo):
+    reconstruction_download = mo.download(
+        data=reconstruction_bundle(panels[export_panel.value].figure),
+        filename=f"07-{export_panel.value}-reconstruction.zip", label="Download reconstruction",
+    ) if build_export.value else None
+    reconstruction_download
+    return (reconstruction_download,)
 
 
 if __name__ == "__main__":

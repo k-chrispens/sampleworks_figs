@@ -360,7 +360,7 @@ def load_min_altloc_rmsd(
 
 
 def get_rscc_nan_proteins(
-    models: tuple[str, ...] = ("boltz2X-RAY", "boltz2MD", "protenix"),
+    models: tuple[str, ...] = ("boltz2X-RAY", "boltz2MD", "protenix", "rf3"),
 ) -> set[str]:
     """Return proteins with at least one NaN ``rscc`` value for the given models.
 
@@ -561,7 +561,7 @@ def merge_classification_by_containment(
     unmatched = ~left_keys.isin(matched_keys)
     if unmatched.any():
         n = int(unmatched.sum())
-        sample = left.loc[unmatched.values, ["protein", "selection"]].drop_duplicates().head(3)
+        sample = left.loc[unmatched, ["protein", "selection"]].drop_duplicates().head(3)
         print(
             f"⚠️  {n} RSCC rows had no containing classification; dropped. "
             f"Examples: {sample.to_dict(orient='records')}"

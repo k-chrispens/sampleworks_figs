@@ -158,7 +158,7 @@ with pip/conda. The project requires Python 3.13 or later, with 3.13 selected
 by `.python-version`. Use the committed lockfile without updating it:
 
 ```sh
-uv run --locked python -c "import style, loaders, transforms, plot_distributions, plot_scatter, plot_classified, plot_tradeoff, plot_training_bias"
+uv run --locked python -c "import style, loaders, transforms, plot_scatter, plot_classified, plot_tradeoff, plot_training_bias, plot_budgets"
 ```
 
 Sources establishing this exact import set and runtime:
@@ -174,7 +174,7 @@ as required by `CLAUDE.md`, Adding a New Figure and Reference.
 
 ### Notebook changes
 
-Do not execute a marimo notebook as `python <notebook>.py`. The three
+Do not execute a marimo notebook as `python <notebook>.py`. The eight
 notebooks define `marimo.App` cells, not ordinary script execution.
 Sources: their app declarations and `CLAUDE.md`, Commands and Validation.
 
@@ -198,6 +198,21 @@ No test runner, Makefile, pre-commit configuration, or CI workflow existed
 in this repository at skill creation. Reinspect any added test/build
 definitions when the change introduces them and run their actual supported
 commands; do not invent `pytest`, lint, or build targets.
+
+The interactive-figure refactor adds a standard-library unittest suite and
+eight numbered marimo entry points. Run these current checks sequentially:
+
+```sh
+uv run --locked python -m unittest discover -s tests -v
+uv run --locked marimo check --strict [0-9][0-9]_*.py
+```
+
+Sources: `tests/test_*.py` define `unittest.TestCase` tests; `CLAUDE.md`,
+Validation, names both invocations; `01_baseline.py` through
+`08_sampling_budgets.py` define the current notebook entry points.
+Follow `CLAUDE.md`'s remote-runtime requirement: use an isolated pod synced
+from the landing checkout, not another thread's checkout or demo workspace.
+Confirm source hashes and results-snapshot availability before verification.
 
 ## 4. Establish all required remote checks and reviews
 

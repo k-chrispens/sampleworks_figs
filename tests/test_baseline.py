@@ -18,7 +18,6 @@ from baseline import (
     prepare_baseline,
 )
 from loaders import RSCC_MAX_RMSD_SOURCES
-from plot_distributions import make_combined_baseline_distributions
 from plot_interaction import select_observations
 
 
@@ -53,23 +52,22 @@ class BaselineTest(unittest.TestCase):
         self.assertEqual(len(regions.loc[regions.metric == "RSCC"]), 3)
         pd.testing.assert_frame_equal(rscc, frames()[0])
 
-    def test_ecdf_ties_and_renderer_values_match_existing_helper(self):
+    def test_ecdf_ties_and_renderers_match_independent_expected_coordinates(self):
         rscc, lddt = frames()
         points, _, _ = prepare_baseline(rscc, lddt, ["protenix"])
         curves = baseline_ecdf(points)
         static = make_baseline_static(curves)
         interactive = make_baseline_interactive(curves)
-        reference = make_combined_baseline_distributions(
-            rscc.groupby(["protein", "model_name"], as_index=False).rscc.mean(),
-            lddt, cumulative=True, cumulative_style="ecdf",
-        )
+        expected = [
+            ([.4, .4, .5], [0, .5, 1]),
+            ([0, 0, 0, .8], [0, 1/3, 2/3, 1]),
+        ]
         for i, axis in enumerate(static.axes):
             x, y = axis.lines[0].get_data()
             np.testing.assert_array_equal(x, interactive.data[i].x)
             np.testing.assert_array_equal(y, interactive.data[i].y)
-            ref_x, ref_y = reference.axes[i].lines[0].get_data()
-            np.testing.assert_array_equal(x[1:], ref_x[1:])
-            np.testing.assert_array_equal(y, ref_y)
+            np.testing.assert_allclose(x, expected[i][0])
+            np.testing.assert_allclose(y, expected[i][1])
             self.assertTrue(np.isfinite(x).all())
             self.assertEqual(y[-1], 1)
         cluster = curves.loc[curves.metric == "Clustering score"]
