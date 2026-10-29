@@ -1,0 +1,6 @@
+# Preserve Matplotlib path formatting in these archived reconstruction snapshots.
+# Other files and other whitespace checks retain their normal behavior.
+figures/fig3c/v02.svg whitespace=-blank-at-eol
+figures/fig3d/v01.svg whitespace=-blank-at-eol
+figures/fig3e/v01.svg whitespace=-blank-at-eol
+figures/fig3e/v01-mean.svg whitespace=-blank-at-eol
